@@ -35,7 +35,8 @@ router.post("/add", verifyToken, async (req, res) => {
         const dataFormat = { ...schedule.toObject(), companyName: company.name, siteName: site.name, guardName: user.fullName }
 
         // Real-time guard ko notify
-        req.io.to(schedule.guardId).emit("newSchedule", schedule);
+        req.io.emit("newSchedule", dataFormat);
+        req.io.to(schedule.guardId).emit("newSchedule", dataFormat);
 
         res.status(201).json({ message: "Your site schedule has been successfully added", isError: false, schedule: dataFormat });
 
@@ -58,7 +59,9 @@ router.get("/all", verifyToken, async (req, res) => {
         // IDs jinhe missed mark karna hai
         const missedIds = schedules.filter(s => {
             const startTime = new Date(s.start.time);
-            const graceTime = new Date(startTime.getTime() + 10 * 60000); // +10 min
+            const graceTime = new Date(startTime.getTime() + 10 * 60000);
+            console.log('graceTime', graceTime)
+            console.log('now', now)
             return graceTime < now && s.status === "pending";
         }).map(s => s._id);
 
@@ -158,10 +161,12 @@ router.get("/single-shift", verifyToken, async (req, res) => {
 
         if (!shift) { return res.status(404).json({ message: "No active shift found" }) }
 
-        const company = await Companies.findOne({ id: shift.companyId })
-        const site = await Sites.findOne({ id: shift.siteId })
+        const [company, site] = await Promise.all([
+            Companies.findOne({ id: shift.companyId }).select("name").lean(),
+            Sites.findOne({ id: shift.siteId }).select("name").lean(),
+        ]);
 
-        const dataFormat = { ...shift, company: company.name, site: site.name }
+        const dataFormat = { ...shift, company: company?.name ?? "Unknown", site: site?.name ?? "Unknown" };
 
         res.status(200).json({ shift: dataFormat })
 
@@ -183,7 +188,7 @@ router.post("/checkout/:id", async (req, res) => {
         )
 
         // Real-time update
-        io.emit("scheduleUpdated", schedule)
+       req.io.emit("scheduleUpdated", schedule)
 
         res.status(200).json({ message: "Shift status Updated", schedule })
     } catch (error) {
@@ -203,7 +208,7 @@ router.post("/checkIn/:id", async (req, res) => {
         )
 
         // Real-time update panel ke dashboard pe
-        io.emit("scheduleUpdated", schedule)
+        req.io.emit("scheduleUpdated", schedule)
 
         res.status(200).json({ message: "Shift Status Updated", schedule })
     } catch (error) {
