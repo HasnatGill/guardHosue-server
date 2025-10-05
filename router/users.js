@@ -22,7 +22,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         const user = await Users.findOne({ $or: [{ email }, { phone }] });
         if (user) { return res.status(401).json({ message: user.phone === phone ? "Phone is already in use" : "Email is already in use", isError: true }) }
 
-        const hashedPassword = await bcrypt.hash("guardHouse123", 10)
+        const hashedPassword = await bcrypt.hash("g12345", 10)
 
         let photoURL = "", photoPublicId = "", newUserUID = getRandomId()
         if (req.file) {
