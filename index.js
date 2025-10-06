@@ -27,8 +27,8 @@ const app = express()
 app.use(cors({
     origin: ['http://localhost:5173', 'https://guard-house-panel.vercel.app'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(morgan("dev"))

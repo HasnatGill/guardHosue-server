@@ -182,13 +182,13 @@ router.post("/checkout/:id", async (req, res) => {
         const { id } = req.params
 
         const schedule = await Schedules.findByIdAndUpdate(
-            { id },
+            id,
             { status: "checkOUt", "end.status": "active" },
             { new: true }
         )
 
         // Real-time update
-       req.io.emit("scheduleUpdated", schedule)
+        req.io.emit("scheduleUpdated", schedule)
 
         res.status(200).json({ message: "Shift status Updated", schedule })
     } catch (error) {
@@ -202,7 +202,7 @@ router.post("/checkIn/:id", async (req, res) => {
         const { id } = req.params
 
         const schedule = await Schedules.findByIdAndUpdate(
-            { id },
+            id,
             { status: "checkIn", "start.status": "active" },
             { new: true }
         )
