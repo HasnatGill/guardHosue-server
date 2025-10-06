@@ -27,7 +27,7 @@ router.post("/add", verifyToken, async (req, res) => {
         const site = await Sites.findOne({ id: schedule.siteId })
         const user = await Users.findOne({ uid: schedule.guardId })
 
-        if (status === "pending") {
+        if (status === "pending") {4
             const graceTime = new Date(shiftStart.getTime() + 10 * 60000);
             await agenda.schedule(graceTime, "mark missed schedule", { scheduleId: schedule._id });
         }
@@ -183,7 +183,7 @@ router.post("/checkout/:id", async (req, res) => {
 
         const schedule = await Schedules.findByIdAndUpdate(
             id,
-            { status: "checkOUt", "end.status": "active" },
+            { status: "checkOut", "end.status": "active" },
             { new: true }
         )
 
