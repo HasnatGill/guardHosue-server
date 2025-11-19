@@ -4,12 +4,16 @@ const { Schema } = mongoose
 const schema = new Schema({
     id: { type: String, required: true, unique: true },
     name: { type: String, required: true, default: "" },
+    registrationNo: { type: String, required: true, default: "" },
+    email: { type: String, required: true, default: "" },
+    phone: { type: String, required: true, default: "" },
     country: { type: Schema.Types.Mixed, required: true, default: {} },
     province: { type: Schema.Types.Mixed, required: true, default: {} },
     city: { type: Schema.Types.Mixed, required: true, default: {} },
     zipCode: { type: String, required: true, default: "" },
     address: { type: String, required: true, default: "" },
-    status: { type: String, default: "active" },
+    isEmailVerify: { type: Boolean, default: false },
+    status: { type: String, default: "pending" },
     createdBy: { type: String, required: true, default: "" },
 }, { timestamps: true })
 

@@ -18,14 +18,9 @@ const { APP_URL, APP_URL_1, PORT = 8000 } = process.env
 connectDB();
 
 const app = express()
-// app.use(cors({
-//     origin: [""],
-//     allowedHeaders: ['Content-Type', 'Authorization'],
-//     credentials: true,
-// }))
 
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://guard-house-panel.vercel.app'],
+    origin: [APP_URL, APP_URL_1],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

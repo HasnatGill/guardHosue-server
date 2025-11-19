@@ -2,6 +2,7 @@ const express = require("express")
 const bcrypt = require("bcrypt")
 const jwt = require("jsonwebtoken")
 const Users = require("../models/auth")
+const Companies = require("../models/companies")
 const { verifyToken, verifySuperAdmin } = require("../middlewares/auth")
 const { getRandomId } = require("../config/global")
 
@@ -156,5 +157,43 @@ router.patch("/user-change-password", verifyToken, async (req, res) => {
         res.status(500).json({ message: "Something went wrong. Internal server error.", isError: true, error })
     }
 })
+
+router.post("/set-password", async (req, res) => {
+    try {
+        const { token, email, password } = req.body;
+
+        const user = await Users.findOne({ email, verifyToken: token });
+
+        if (!user) { return res.status(400).json({ message: "Invalid or expired link", isError: true }); }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        await Users.findOneAndUpdate(
+            { email, verifyToken: token },
+            {
+                password: hashedPassword,
+                isEmailVerify: true,
+                verifyToken: ""
+            },
+            { new: true, runValidators: false } // IMPORTANT
+        );
+
+        if (user.companyId) {
+            await Companies.findOneAndUpdate(
+                { id: user.companyId },
+                { status: "active" },
+                { new: true }
+            );
+        }
+
+        res.status(200).json({ message: "Password set successfully", isError: false });
+
+    } catch (error) {
+        console.error("Set Password Error:", error);
+        res.status(500).json({ message: "Server error", isError: true });
+    }
+});
+
+
 
 module.exports = router
