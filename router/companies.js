@@ -3,51 +3,33 @@ const Companies = require("../models/companies");
 const Users = require("../models/auth")
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId } = require("../config/global");
-const sendVerificationMail = require("../utils/sendMail")
+const sendMail = require("../utils/sendMail")
 
 const router = express.Router()
 
-// router.post("/add", verifyToken, async (req, res) => {
-//     try {
-//         const { uid } = req;
-//         let formData = req.body
-
-//         const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid })
-//         await company.save()
-
-//         if (company.toObject().id) {
-//             const newUser = { firstName: "Client", lastName: "Admin", fullName: "Client Admin", email: formData.email,uid: getRandomId(), companyId: company.toObject().id }
-//         }
-
-//         res.status(201).json({ message: "Your company & Client Admin added has been successfully", isError: false, company })
-
-//     } catch (error) {
-//         console.error(error)
-//         res.status(500).json({ message: "Something went wrong while adding the company", isError: true, error })
-//     }
-// })
+const { APP_URL } = process.env
 
 router.post("/add", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
         const formData = req.body;
 
-        // 1. Create Company
         const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid });
         await company.save();
 
-        // 2. Create Admin User (without password)
         const adminUid = getRandomId();
-        const token = getRandomId(); // verification token
+        const token = getRandomId();
 
         const newUser = new Users({ uid: adminUid, companyId: company.id, email: formData.email, firstName: "Client", lastName: "Admin", fullName: "Client Admin", createdBy: uid, roles: ["admin"], verifyToken: token });
 
         await newUser.save();
 
-        // 3. Send Email to Admin
-        const verifyUrl = `http://localhost:5173/auth/set-password?token=${token}&email=${formData.email}`;
+        const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${formData.email}`;
+        const bodyHtml = `<p>Hello Admin,</p>
+                 <p>Please click the link below to set your password:</p>
+                 <a href="${verifyUrl}" style="color: blue; text-decoration: underline;">Set Password</a>`
 
-        await sendVerificationMail(formData.email, verifyUrl);
+        await sendMail(formData.email, "Set admin profile password for Guard House", bodyHtml);
 
         res.status(201).json({ message: "Company & Client Admin added successfully. Verification email sent.", isError: false, company });
 

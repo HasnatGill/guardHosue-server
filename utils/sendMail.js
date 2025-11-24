@@ -1,25 +1,21 @@
 const nodemailer = require("nodemailer");
 
+const { MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD } = process.env
+
 const transporter = nodemailer.createTransport({
-    host: "sandbox.smtp.mailtrap.io",
-    port: 2525,
+    host: MAIL_HOST,
+    port: MAIL_PORT,
     auth: {
-        user: "6867c26f87c061",
-        pass: "17fbab6be6fc3c"
+        user: MAIL_USERNAME,
+        pass: MAIL_PASSWORD,
     }
 });
 
-async function sendVerificationMail(to, link) {
+async function sendMail(to, subjectText, bodHtml) {
     return transporter.sendMail({
-        from: "Guard <no-reply@yourapp.com>",
-        to,
-        subject: "Set Your Password",
-        html: `
-      <p>Hello Admin,</p>
-      <p>Please click the link below to set your password:</p>
-      <a href="${link}" style="color: blue; text-decoration: underline;">Set Password</a>
-    `
+        from: "Guard House", to, subject: subjectText,
+        html: bodHtml
     });
 }
 
-module.exports = sendVerificationMail;
+module.exports = sendMail;

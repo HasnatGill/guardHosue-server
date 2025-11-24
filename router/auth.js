@@ -5,6 +5,7 @@ const Users = require("../models/auth")
 const Companies = require("../models/companies")
 const { verifyToken, verifySuperAdmin } = require("../middlewares/auth")
 const { getRandomId } = require("../config/global")
+const sendMail = require("../utils/sendMail")
 
 const router = express.Router()
 
@@ -194,6 +195,90 @@ router.post("/set-password", async (req, res) => {
     }
 });
 
+router.post("/forgot-password", async (req, res) => {
+    try {
+        const { email } = req.body;
+        const user = await Users.findOne({ email });
+
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        const otpExpiresAt = new Date(Date.now() + 1 * 60 * 1000); // 1 minutes
+
+        await Users.findOneAndUpdate(
+            { email },
+            { otp, otpExpiresAt },
+            { new: true }
+        );
+        const pathUrl = `/auth/otp-verify?email=${email}`;
+
+        await sendMail(email, "Password Reset OTP", `Your OTP for password reset is ${otp}. It will expire in 2 minutes.`);
+
+        res.status(200).json({ message: "OTP sent successfully", url: pathUrl });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong", error });
+    }
+});
+
+router.post("/verify-otp", async (req, res) => {
+    try {
+        const formData = req.body;
+        const { email, otp } = formData
+
+        const user = await Users.findOne({ email });
+
+        if (!user || !user.otp) return res.status(404).json({ message: "OTP not found or user invalid" });
+        if (user.otp !== otp) return res.status(400).json({ message: "Invalid OTP" });
+
+        if (new Date() > new Date(user.otpExpiresAt)) return res.status(400).json({ message: "OTP has expired" });
+
+        const token = jwt.sign({ email }, JWT_SECRET_KEY, { expiresIn: "5m" });
+
+        await Users.findOneAndUpdate(
+            { email },
+            { otp: null, otpExpiresAt: null },
+            { new: true }
+        );
+
+        const pathUrl = `/auth/change-password?token=${token}`
+
+        res.status(200).json({ message: "OTP verified", pathUrl });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong", error });
+    }
+});
+
+router.post("/reset-password", async (req, res) => {
+    try {
+        const formData = req.body;
+
+        const { newPassword, token } = formData
+
+        if (!token) return res.status(400).json({ message: "Token required" });
+
+        const decoded = jwt.verify(token, JWT_SECRET_KEY);
+        const user = await Users.findOne({ email: decoded.email });
+
+        const uid = user.uid
+
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await Users.findOneAndUpdate(
+            { uid },
+            { password: hashedPassword },
+            { new: true }
+        );
+
+        res.status(200).json({ message: "Password reset successfully", pathUrl: "/login" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong", error });
+    }
+});
 
 
 module.exports = router

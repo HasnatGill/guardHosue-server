@@ -27,6 +27,8 @@ const schema = new Schema({
     verifyToken: { type: String, default: "" },
     status: { type: String, default: "active" },
     roles: { type: [String], default: ["guard"] },
+    otp: String,
+    otpExpires: Date,
     createdBy: { type: String, required: true },
 }, { timestamps: true })
 
