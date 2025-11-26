@@ -13,14 +13,14 @@ const sites = require("./router/sites")
 const users = require("./router/users")
 const schedules = require("./router/schedule")
 
-const { APP_URL, APP_URL_1, PORT = 8000 } = process.env
+const { APP_URL, APP_URL_1, APP_URL_2, PORT = 8000 } = process.env
 
 connectDB();
 
 const app = express()
 
 app.use(cors({
-    origin: [APP_URL, APP_URL_1],
+    origin: [APP_URL, APP_URL_1, APP_URL_2],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
