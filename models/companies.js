@@ -1,3 +1,4 @@
+const { unique } = require("agenda/dist/job/unique")
 const mongoose = require("mongoose")
 const { Schema } = mongoose
 
@@ -5,7 +6,7 @@ const schema = new Schema({
     id: { type: String, required: true, unique: true },
     name: { type: String, required: true, default: "" },
     registrationNo: { type: String, required: true, default: "" },
-    email: { type: String, required: true, default: "" },
+    email: { type: String, required: true, default: "", unique: true },
     phone: { type: String, required: true, default: "" },
     country: { type: Schema.Types.Mixed, required: true, default: {} },
     province: { type: Schema.Types.Mixed, required: true, default: {} },

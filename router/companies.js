@@ -3,7 +3,8 @@ const Companies = require("../models/companies");
 const Users = require("../models/auth")
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId } = require("../config/global");
-const sendMail = require("../utils/sendMail")
+const sendMail = require("../utils/sendMail");
+const Sites = require("../models/sites");
 
 const router = express.Router()
 
@@ -40,22 +41,59 @@ router.post("/add", verifyToken, async (req, res) => {
 });
 
 
+// router.get("/all", verifyToken, async (req, res) => {
+//     try {
+
+//         const { status = "" } = req.query
+//         let query = {}
+//         if (status) { query.status = status }
+
+//         const companies = await Companies.find(query)
+
+//         res.status(200).json({ message: "Companies fetched", isError: false, companies })
+
+//     } catch (error) {
+//         console.error(error)
+//         res.status(500).json({ message: "Something went wrong while getting the Companies", isError: true, error })
+//     }
+// })
+
 router.get("/all", verifyToken, async (req, res) => {
     try {
+        let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, } = req.query;
 
-        const { status = "" } = req.query
-        let query = {}
-        if (status) { query.status = status }
+        perPage = Number(perPage);
+        pageNo = Number(pageNo);
 
-        const companies = await Companies.find(query)
+        const query = {};
 
-        res.status(200).json({ message: "Companies fetched", isError: false, companies })
+        // Simple text filters
+        if (status) query.status = status;
+        if (name) query.name = { $regex: name, $options: "i" };
+        if (registrationNo) query.registrationNo = { $regex: registrationNo, $options: "i" };
+        if (email) query.email = { $regex: email, $options: "i" };
+
+        // JSON-string exact filters
+        if (country && country !== "null") query.country = country;
+        if (province && province !== "null") query.province = province;
+        if (city && country !== "null") query.city = city;
+
+        const total = await Companies.countDocuments(query);
+        const skip = (pageNo - 1) * perPage;
+
+        console.log('query', query)
+
+        const companies = await Companies.find(query).sort({ createdAt: -1 }).skip(skip).limit(perPage).lean();
+
+        return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals: total });
 
     } catch (error) {
-        console.error(error)
-        res.status(500).json({ message: "Something went wrong while getting the Companies", isError: true, error })
+        console.error("Get companies error:", error);
+        return res.status(500).json({ message: "Something went wrong while getting companies", isError: true, error: error.message, });
     }
-})
+});
+
+
 
 router.get("/all-companies", verifyToken, async (req, res) => {
     try {
@@ -130,5 +168,46 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
         res.status(500).json({ message: "Something went wrong while deleting the company", isError: true, error })
     }
 })
+
+router.get("/cards-data", verifyToken, async (req, res) => {
+    try {
+        const { status } = req.query;
+
+        // COMMON FILTERS
+        const companyFilter = status ? { status } : {};
+        const siteFilter = status ? { status } : {};
+
+        const guardFilter = { roles: { $in: ["guard"] } };
+        if (status) guardFilter.status = status;
+
+        // === Total Count ===
+        const [companyCount, siteCount, guardCount] = await Promise.all([
+            Companies.countDocuments(companyFilter),
+            Sites.countDocuments(siteFilter),
+            Users.countDocuments(guardFilter),
+        ]);
+
+        // === Increasing Count (Last 30 days) ===
+        const lastMonth = new Date();
+        lastMonth.setDate(lastMonth.getDate() - 30);
+
+        const [companyIncrease, siteIncrease, guardIncrease,] = await Promise.all([
+            Companies.countDocuments({ createdAt: { $gte: lastMonth } }),
+            Sites.countDocuments({ createdAt: { $gte: lastMonth } }),
+            Users.countDocuments({ createdAt: { $gte: lastMonth }, roles: { $in: ["guard"] }, }),
+        ]);
+
+        return res.status(200).json({
+            company: { total: companyCount, increasing: companyIncrease },
+            sites: { total: siteCount, increasing: siteIncrease },
+            guards: { total: guardCount, increasing: guardIncrease },
+        });
+
+    } catch (error) {
+        console.error("Cards-data error:", error);
+        res.status(500).json({ message: "Failed to fetch dashboard cards", error: error.message, });
+    }
+});
+
 
 module.exports = router
