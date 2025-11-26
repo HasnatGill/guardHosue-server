@@ -112,18 +112,14 @@ router.patch("/update", verifyToken, async (req, res) => {
 
 router.patch("/change-password", verifyToken, async (req, res) => {
     try {
-        const { currentPassword, newPassword } = req.body;
+        const { newPassword } = req.body;
 
-        if (!currentPassword || !newPassword) { return res.status(400).json({ message: "Please enter all fields", isError: true }); }
+        if (!newPassword) { return res.status(400).json({ message: "Please enter all fields", isError: true }); }
 
         const { uid } = req
 
         const user = await Users.findOne({ uid }).select("password").exec()
         if (!user) { return res.status(404).json({ message: "User not found", isError: true }) }
-
-        const match = await bcrypt.compare(currentPassword, user.password)
-
-        if (!match) { return res.status(401).json({ message: "Invalid current password", isError: true }); }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
 
@@ -243,7 +239,7 @@ router.post("/verify-otp", async (req, res) => {
 
         const pathUrl = `/auth/change-password?token=${token}`
 
-        res.status(200).json({ message: "OTP verified", pathUrl });
+        res.status(200).json({ message: "OTP verified", pathUrl, token });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Something went wrong", error });

@@ -234,4 +234,41 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
 //     }
 // })
 
+router.patch("/profile-update", verifyToken, upload.single("image"), async (req, res) => {
+    try {
+        const { uid } = req;
+
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(404).json({ isError: true, message: "User not found" });
+
+        let { photoURL, photoPublicId } = user;
+
+        // ---- Upload New Image (if provided)
+        if (req.file) {
+            const upload = await new Promise((resolve, reject) =>
+                cloudinary.uploader.upload_stream(
+                    { folder: "guardsHouse/users" },
+                    (err, result) => (err ? reject(err) : resolve(result))
+                ).end(req.file.buffer)
+            );
+
+            photoURL = upload.secure_url;
+            photoPublicId = upload.public_id;
+
+            if (user.photoPublicId) await deleteFileFromCloudinary(user.photoPublicId);
+        }
+
+        // ---- Prepare Updated Fields
+        const updatedData = { ...req.body, photoURL, photoPublicId, updatedAt: new Date() };
+
+        const updatedUser = await Users.findOneAndUpdate({ uid }, updatedData, { new: true });
+
+        res.status(200).json({ message: "Profile updated successfully", isError: false, user: updatedUser });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ isError: true, message: "Profile update failed", error });
+    }
+});
+
+
 module.exports = router
