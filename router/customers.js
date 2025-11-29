@@ -44,7 +44,10 @@ router.get("/all", verifyToken, async (req, res) => {
 
         const customers = await Customers.find(query).lean();
 
-        res.status(200).json({ message: "Customers fetched successfully", isError: false, customers });
+        const active = await Customers.countDocuments({ status: "active" })
+        const inactive = await Customers.countDocuments({ status: "inactive" })
+
+        res.status(200).json({ message: "Customers fetched successfully", isError: false, customers, count: { active, inactive, } });
 
     } catch (error) {
         console.error(error);
