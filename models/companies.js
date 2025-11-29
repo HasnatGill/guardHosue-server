@@ -15,6 +15,8 @@ const schema = new Schema({
     address: { type: String, required: true, default: "" },
     isEmailVerify: { type: Boolean, default: false },
     status: { type: String, default: "pending" },
+    paymentStatus: { type: String, enum: ["paid", "unpaid"], default: "unpaid" },
+    expirePackage: { type: Date, default: null },
     createdBy: { type: String, required: true, default: "" },
 }, { timestamps: true })
 

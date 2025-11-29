@@ -9,6 +9,7 @@ const { connectDB } = require("./config/db")
 
 const auth = require("./router/auth")
 const companies = require("./router/companies")
+const transactions = require("./router/transactions")
 const sites = require("./router/sites")
 const users = require("./router/users")
 const schedules = require("./router/schedule")
@@ -55,6 +56,7 @@ app.get("/db-test", (req, res) => {
 
 app.use("/auth", auth)
 app.use("/companies", companies)
+app.use("/transactions", transactions)
 app.use("/sites-registered", sites)
 app.use("/users", users)
 app.use("/schedules", schedules)
