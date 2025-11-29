@@ -12,7 +12,9 @@ const { APP_URL } = process.env
 
 router.post("/add", verifyToken, async (req, res) => {
     try {
+
         const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
         const formData = req.body;
 
         const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid });
@@ -43,6 +45,10 @@ router.post("/add", verifyToken, async (req, res) => {
 
 router.get("/all", verifyToken, async (req, res) => {
     try {
+
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
         let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, paymentStatus } = req.query;
 
         perPage = Number(perPage);
@@ -90,7 +96,10 @@ router.get("/all", verifyToken, async (req, res) => {
 
 router.patch("/payment-status/:id", verifyToken, async (req, res) => {
     try {
+
         const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
         const companyId = req.params.id;
         const { paymentStatus, amount = 0, method = "manual", notes = "" } = req.body;
 
@@ -124,6 +133,9 @@ router.patch("/payment-status/:id", verifyToken, async (req, res) => {
 router.get("/all-companies", verifyToken, async (req, res) => {
     try {
 
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
         const { status = "" } = req.query
         let query = {}
         if (status) { query.status = status }
@@ -140,6 +152,9 @@ router.get("/all-companies", verifyToken, async (req, res) => {
 
 router.patch("/update/:id", verifyToken, async (req, res) => {
     try {
+
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         const { id } = req.params
         let formData = req.body
@@ -164,6 +179,9 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
 router.get("/single-with-id/:id", verifyToken, async (req, res) => {
     try {
 
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
         const { id } = req.params
 
         const company = await Companies.findOne({ id })
@@ -178,6 +196,9 @@ router.get("/single-with-id/:id", verifyToken, async (req, res) => {
 
 router.delete("/single/:id", verifyToken, async (req, res) => {
     try {
+
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         const { id } = req.params
 
@@ -197,6 +218,10 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
 
 router.get("/cards-data", verifyToken, async (req, res) => {
     try {
+
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
         const { status } = req.query;
 
         // COMMON FILTERS
