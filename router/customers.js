@@ -129,7 +129,34 @@ router.get("/single-with-id/:id", verifyToken, async (req, res) => {
 });
 
 /* ============================
-    DELETE CUSTOMER (SOFT DELETE)
+    UPDATE STATUS CUSTOMER (SOFT DELETE)
+=============================== */
+router.patch("/update-status/:id", verifyToken, async (req, res) => {
+    try {
+
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const { status } = req.body
+
+        const { id } = req.params;
+
+        await Customers.findOneAndUpdate(
+            { id },
+            { $set: { status: status } },
+            { new: true }
+        );
+
+        res.status(200).json({ message: `Customer ${status === "active" ? "restore" : "deleted"} successfully`, isError: false });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong while updating the customer status", isError: true, error });
+    }
+});
+
+/* ============================
+    DELETED CUSTOMER (SOFT DELETE)
 =============================== */
 router.delete("/single/:id", verifyToken, async (req, res) => {
     try {
@@ -139,17 +166,15 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
 
         const { id } = req.params;
 
-        await Customers.findOneAndUpdate(
-            { id },
-            { $set: { status: "inactive" } },
-            { new: true }
-        );
+        const deletedCustomer = await Customers.findOneAndDelete({ id });
 
-        res.status(200).json({ message: "Customer deleted successfully", isError: false });
+        if (!deletedCustomer) { return res.status(404).json({ message: "Customer not found", isError: true }); }
+
+        res.status(200).json({ message: `Customer ${status === "active" ? "restore" : "deleted"} successfully`, isError: false });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Something went wrong while deleting the customer", isError: true, error });
+        res.status(500).json({ message: "Something went wrong while updating the customer status", isError: true, error });
     }
 });
 
