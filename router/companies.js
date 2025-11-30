@@ -15,6 +15,7 @@ router.post("/add", verifyToken, async (req, res) => {
 
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
         const formData = req.body;
 
         const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid });
@@ -45,54 +46,70 @@ router.post("/add", verifyToken, async (req, res) => {
 
 router.get("/all", verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, paymentStatus } = req.query;
-
+        // console.log('req.query', req.query)
         perPage = Number(perPage);
         pageNo = Number(pageNo);
+        const skip = (pageNo - 1) * perPage;
 
+        // Expire pay logic (keep same)
         const now = new Date();
         await Companies.updateMany(
             { paymentStatus: "paid", expirePackage: { $lte: now } },
             { $set: { paymentStatus: "unpaid", expirePackage: null } }
         );
 
-        const query = {};
+        // Base Match Filter
+        const match = {};
 
-        // Simple text filters
-        if (status) query.status = status;
-        if (paymentStatus) query.paymentStatus = paymentStatus;
-        if (name) query.name = { $regex: name, $options: "i" };
-        if (registrationNo) query.registrationNo = { $regex: registrationNo, $options: "i" };
-        if (email) query.email = { $regex: email, $options: "i" };
+        if (status) match.status = status;
+        if (paymentStatus) match.paymentStatus = paymentStatus;
+        if (name) match.name = { $regex: name, $options: "i" };
+        if (registrationNo) match.registrationNo = { $regex: registrationNo, $options: "i" };
+        if (email) match.email = { $regex: email, $options: "i" };
 
-        // JSON-string exact filters
-        if (country && country !== "null") query.country = country;
-        if (province && province !== "null") query.province = province;
-        if (city && country !== "null") query.city = city;
+        if (country && country !== "null") match.country = country;
+        if (province && province !== "null") match.province = province;
+        if (city && city !== "null") match.city = city;
 
-        const total = await Companies.countDocuments(query);
-        const skip = (pageNo - 1) * perPage;
+        const result = await Companies.aggregate([
+            { $match: match },
+            {
+                $facet: {
+                    data: [
+                        { $sort: { createdAt: -1 } },
+                        { $skip: skip },
+                        { $limit: perPage }
+                    ],
+                    total: [{ $count: "count" }],
+                    statusCount: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+                    paymentCount: [{ $group: { _id: "$paymentStatus", count: { $sum: 1 } } }]
+                }
+            }
+        ]);
 
-        const companies = await Companies.find(query).sort({ createdAt: -1 }).skip(skip).limit(perPage).lean();
+        const companies = result[0].data;
+        const total = result[0].total[0]?.count || 0;
 
-        const active = await Companies.countDocuments({ ...query, status: "active" })
-        const pending = await Companies.countDocuments({ ...query, status: "pending" })
-        const inactive = await Companies.countDocuments({ ...query, status: "inactive" })
+        // Convert status counts into nice object
+        const statusMap = { active: 0, pending: 0, inactive: 0 };
+        result[0].statusCount.forEach(s => { statusMap[s._id] = s.count; });
 
-        const paid = await Companies.countDocuments({ ...query, paymentStatus: "paid" })
-        const unpaid = await Companies.countDocuments({ ...query, paymentStatus: "unpaid" })
+        // Convert payment counts into nice object
+        const paymentMap = { paid: 0, unpaid: 0 };
+        result[0].paymentCount.forEach(p => { paymentMap[p._id] = p.count; });
 
-        return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals: total, count: { active, pending, inactive, unpaid, paid } });
+        return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals: total, count: { ...statusMap, ...paymentMap } });
 
     } catch (error) {
         console.error("Get companies error:", error);
-        return res.status(500).json({ message: "Something went wrong while getting companies", isError: true, error: error.message, });
+        return res.status(500).json({ message: "Something went wrong while getting companies", isError: true, error: error.message });
     }
 });
+
 
 router.patch("/payment-status/:id", verifyToken, async (req, res) => {
     try {
@@ -132,23 +149,28 @@ router.patch("/payment-status/:id", verifyToken, async (req, res) => {
 
 router.get("/all-companies", verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        const { status = "" } = req.query
-        let query = {}
-        if (status) { query.status = status }
+        const { status = "" } = req.query;
 
-        const companies = await Companies.find(query).select("id name")
+        const match = {};
+        if (status) match.status = status;
 
-        res.status(200).json({ message: "Companies fetched", isError: false, companies })
+        const companies = await Companies.aggregate([
+            { $match: match },
+            { $project: { _id: 0, id: 1, name: 1 } },
+            { $sort: { name: 1 } }
+        ]);
+
+        res.status(200).json({ message: "Companies fetched", isError: false, companies });
 
     } catch (error) {
-        console.error(error)
-        res.status(500).json({ message: "Something went wrong while getting the Companies", isError: true, error })
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong while getting the Companies", isError: true, error: error.message });
     }
-})
+});
+
 
 router.patch("/update/:id", verifyToken, async (req, res) => {
     try {

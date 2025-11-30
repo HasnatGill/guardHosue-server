@@ -203,12 +203,12 @@ router.post("/forgot-password", async (req, res) => {
 
         await Users.findOneAndUpdate(
             { email },
-            { otp, otpExpiresAt },
+            { otp, otpExpires: otpExpiresAt },
             { new: true }
         );
         const pathUrl = `/auth/otp-verify?email=${email}`;
 
-        await sendMail(email, "Password Reset OTP", `Your OTP for password reset is ${otp}. It will expire in 2 minutes.`);
+        await sendMail(email, "Password Reset OTP", `Your OTP for password reset is ${otp}. It will expire in 1 minutes.`);
 
         res.status(200).json({ message: "OTP sent successfully", url: pathUrl });
     } catch (error) {
@@ -227,13 +227,13 @@ router.post("/verify-otp", async (req, res) => {
         if (!user || !user.otp) return res.status(404).json({ message: "OTP not found or user invalid" });
         if (user.otp !== otp) return res.status(400).json({ message: "Invalid OTP" });
 
-        if (new Date() > new Date(user.otpExpiresAt)) return res.status(400).json({ message: "OTP has expired" });
+        if (new Date() > new Date(user.otpExpires)) return res.status(400).json({ message: "OTP has expired" });
 
         const token = jwt.sign({ email }, JWT_SECRET_KEY, { expiresIn: "5m" });
 
         await Users.findOneAndUpdate(
             { email },
-            { otp: null, otpExpiresAt: null },
+            { otp: null, otpExpires: null },
             { new: true }
         );
 

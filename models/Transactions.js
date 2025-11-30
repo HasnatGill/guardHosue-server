@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
 const transactionSchema = new Schema({
-  companyId: { type: String, required: true, index: true },
+  companyId: { type: String, required: true, index: true, ref: "companies" },
   ref: { type: String, required: true, unique: true },
   amount: { type: Number, default: 0 }, // optional
   method: { type: String, default: "manual" }, // optional: e.g., 'manual','stripe'

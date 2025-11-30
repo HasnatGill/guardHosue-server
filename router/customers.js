@@ -33,25 +33,50 @@ router.post("/add", verifyToken, async (req, res) => {
 =============================== */
 router.get("/all", verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        const { status = "" } = req.query;
+        let { status = "", perPage = 10, pageNo = 1, } = req.query;
 
-        let query = {};
-        if (status) query.status = status;
+        perPage = Number(perPage);
+        pageNo = Number(pageNo);
+        const skip = (pageNo - 1) * perPage;
 
-        const customers = await Customers.find(query).lean();
+        const match = {};
 
-        const active = await Customers.countDocuments({ status: "active" })
-        const inactive = await Customers.countDocuments({ status: "inactive" })
+        if (status) match.status = status;
 
-        res.status(200).json({ message: "Customers fetched successfully", isError: false, customers, count: { active, inactive, } });
+        const result = await Customers.aggregate([
+            { $match: match },
+
+            {
+                $facet: {
+                    data: [
+                        { $sort: { createdAt: -1 } },
+                        { $skip: skip },
+                        { $limit: perPage },
+                    ],
+                    total: [{ $count: "count" }],
+                    statusCount: [{ $group: { _id: "$status", count: { $sum: 1 } } }]
+                }
+            }
+        ]);
+
+        const customers = result[0].data;
+        const total = result[0].total[0].count || 0
+        // Convert counts to clean object
+        const count = { active: 0, inactive: 0 };
+        result[0].statusCount.forEach(s => { count[s._id] = s.count; });
+
+        res.status(200).json({ message: "Customers fetched successfully", isError: false, customers, count, total });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Something went wrong while getting the customers", isError: true, error });
+        res.status(500).json({
+            message: "Something went wrong while getting the customers",
+            isError: true,
+            error: error.message
+        });
     }
 });
 
@@ -61,19 +86,24 @@ router.get("/all", verifyToken, async (req, res) => {
 router.get("/all-customers", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         const { status = "" } = req.query;
 
-        let query = {};
-        if (status) query.status = status;
+        const match = {};
+        if (status) match.status = status;
 
-        const customers = await Customers.find(query).select("id name").lean();
-        res.status(200).json({ message: "Customers fetched successfully", isError: false, customers });
+        const customers = await Customers.aggregate([
+            { $match: match },
+            { $project: { _id: 0, id: 1, name: 1 } },
+            { $sort: { name: 1 } }
+        ]);
+
+        res.status(200).json({ message: "customers fetched", isError: false, customers });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Something went wrong while getting customers", isError: true, error });
+        res.status(500).json({ message: "Something went wrong while getting the customers", isError: true, error: error.message });
     }
 });
 

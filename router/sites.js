@@ -1,6 +1,6 @@
 const express = require("express")
 const Sites = require("../models/sites");
-const Companies = require("../models/companies")
+const Customers = require("../models/customers")
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId } = require("../config/global");
 
@@ -8,7 +8,10 @@ const router = express.Router()
 
 router.post("/add", verifyToken, async (req, res) => {
     try {
+
         const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
         let formData = req.body
 
         const site = new Sites({ ...formData, id: getRandomId(), createdBy: uid })
@@ -25,33 +28,35 @@ router.post("/add", verifyToken, async (req, res) => {
 router.get("/all", verifyToken, async (req, res) => {
     try {
 
-        const { status = "", companyId } = req.query
-        
-        let query = {}
-        if (status) { query.status = status }
-        if (companyId !== "undefined" && companyId !== "null") { query.companyId = companyId }
+        const { status = "", customerId } = req.query;
 
-        const sites = await Sites.find(query).lean()
+        const match = {};
 
-        const [companiesMap] = await Promise.all([
-            Companies.find({ id: { $in: sites.map(({ companyId }) => companyId) } })
-                .select("id name").lean()
-                .then(companies => Object.fromEntries(companies.map(({ id, name }) => [id, name])))
+        if (status) match.status = status;
+
+        if (customerId) match.customerId = customerId;
+
+        const sites = await Sites.aggregate([
+            { $match: match },
+            {
+                $lookup: {
+                    from: "customers",
+                    localField: "customerId",
+                    foreignField: "id",
+                    as: "customer"
+                }
+            },
+            { $unwind: { path: "$customer", preserveNullAndEmptyArrays: true } },
+            { $addFields: { customer: { $ifNull: ["$customer.name", "Unknown Customer"] } } },
         ]);
-
-        const sitesFormat = sites.map(site => ({
-            ...site,
-            companyName: companiesMap[site.companyId] ?? "Unknown Company"
-        }));
-
-
-        res.status(200).json({ message: "Companies fetched", isError: false, sites: sitesFormat })
+        res.status(200).json({ message: "Companies fetched", isError: false, sites });
 
     } catch (error) {
-        console.error(error)
-        res.status(500).json({ message: "Something went wrong while getting the sites", isError: true, error })
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong while getting the sites", isError: true, error });
     }
-})
+});
+
 
 router.get("/all-sites", verifyToken, async (req, res) => {
     try {

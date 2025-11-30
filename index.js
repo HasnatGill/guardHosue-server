@@ -38,9 +38,9 @@ const { initIO } = require("./socket")
 const io = initIO(server, [APP_URL, APP_URL_1])
 
 app.use((req, res, next) => {
-    req.io = io
-    next()
-})
+    req.io = io;
+    next();
+});
 
 app.get("/", (req, res) => res.send("Server is running"))
 

@@ -3,20 +3,20 @@ const { Schema } = mongoose
 
 const schema = new Schema({
     id: { type: String, required: true, unique: true },
-    companyId: { type: String, required: true, default: "" },
-    name: { type: String, required: true, default: "" },
-    country: { type: Schema.Types.Mixed, required: true, default: {} },
-    province: { type: Schema.Types.Mixed, required: true, default: {} },
-    city: { type: Schema.Types.Mixed, required: true, default: {} },
-    zipCode: { type: String, required: true, default: "" },
-    latitude: { type: String, required: true, default: "" },
-    longitude: { type: String, required: true, default: "" },
-    meters: { type: String, required: true, default: "" },
-    address: { type: String, required: true, default: "" },
+    customerId: { type: String, required: true, ref: "customers" },
+    name: { type: String, required: true, trim: true },
+    country: { type: Schema.Types.Mixed, required: true },
+    province: { type: Schema.Types.Mixed, required: false, default: "{}" },
+    city: { type: Schema.Types.Mixed, required: false, default: "{}" },
+    zipCode: { type: String, required: true, trim: true },
+    latitude: { type: String, required: true, trim: true },
+    longitude: { type: String, required: true, trim: true },
+    meters: { type: String, required: true, trim: true },
+    address: { type: String, required: true, trim: true },
     status: { type: String, default: "active" },
-    createdBy: { type: String, required: true, default: "" },
+    createdBy: { type: String, required: true },
 }, { timestamps: true })
 
-const Sites = mongoose.model("sitesRegistered", schema)
+const Sites = mongoose.model("sites", schema)
 
 module.exports = Sites

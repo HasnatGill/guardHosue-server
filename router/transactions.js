@@ -4,39 +4,104 @@ const Transactions = require("../models/Transactions");
 const Companies = require("../models/companies");
 const { verifyToken } = require("../middlewares/auth");
 
+// router.get("/all", verifyToken, async (req, res) => {
+//     try {
+//         const { uid } = req;
+//         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+//         const { pageNo = 1, perPage = 10, status, ref, companyId, startDate, endDate } = req.query;
+
+//         const query = {};
+//         if (status) query.status = status;
+//         if (ref) query.ref = { $regex: ref, $options: "i" };
+//         if (companyId) query.companyId = companyId;
+//         if (startDate || endDate) query.transactionDate = {};
+//         if (startDate) query.transactionDate.$gte = new Date(startDate);
+//         if (endDate) query.transactionDate.$lte = new Date(endDate);
+
+//         // Fetch transactions
+//         const transactions = await Transactions.find(query).sort({ transactionDate: -1 }).skip((pageNo - 1) * perPage).limit(Number(perPage)).lean();
+
+//         const companyIds = [...new Set(transactions.map(t => t.companyId))];
+//         const companies = await Companies.find({ id: { $in: companyIds } }).select("id name registrationNo").lean();
+
+//         const companyMap = companies.reduce((acc, c) => { acc[c.id] = c; return acc; }, {});
+
+//         const data = transactions.map(t => ({ ...t, company: companyMap[t.companyId] || null }));
+
+//         const total = await Transactions.countDocuments(query);
+
+//         res.status(200).json({ transactions: data, total });
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ message: "Failed to fetch transactions" });
+//     }
+// });
+
 router.get("/all", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        const { pageNo = 1, perPage = 10, status, ref, companyId, startDate, endDate } = req.query;
+        let { pageNo = 1, perPage = 10, status, ref, companyId, startDate, endDate } = req.query;
 
-        const query = {};
-        if (status) query.status = status;
-        if (ref) query.ref = { $regex: ref, $options: "i" };
-        if (companyId) query.companyId = companyId;
-        if (startDate || endDate) query.transactionDate = {};
-        if (startDate) query.transactionDate.$gte = new Date(startDate);
-        if (endDate) query.transactionDate.$lte = new Date(endDate);
+        pageNo = Number(pageNo);
+        perPage = Number(perPage);
 
-        // Fetch transactions
-        const transactions = await Transactions.find(query).sort({ transactionDate: -1 }).skip((pageNo - 1) * perPage).limit(Number(perPage)).lean();
+        const skip = (pageNo - 1) * perPage;
 
-        const companyIds = [...new Set(transactions.map(t => t.companyId))];
-        const companies = await Companies.find({ id: { $in: companyIds } }).select("id name registrationNo").lean();
+        // -----------------------------
+        // BUILD MATCH / FILTER OBJECT
+        // -----------------------------
+        const match = {};
 
-        const companyMap = companies.reduce((acc, c) => { acc[c.id] = c; return acc; }, {});
+        if (status) match.status = status;
+        if (ref) match.ref = { $regex: ref, $options: "i" };
+        if (companyId) match.companyId = companyId;
+        if (startDate || endDate) match.transactionDate = {};
+        if (startDate) match.transactionDate.$gte = new Date(startDate);
+        if (endDate) match.transactionDate.$lte = new Date(endDate);
 
-        const data = transactions.map(t => ({ ...t, company: companyMap[t.companyId] || null }));
+        // -----------------------------
+        // AGGREGATE PIPELINE
+        // -----------------------------
+        const result = await Transactions.aggregate([
+            { $match: match },
 
-        const total = await Transactions.countDocuments(query);
+            {
+                $lookup: {
+                    from: "companies",
+                    localField: "companyId",
+                    foreignField: "id",
+                    as: "company"
+                }
+            },
+            
+            { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
+            {
+                $facet: {
+                    data: [
+                        { $sort: { transactionDate: -1 } },
+                        { $skip: skip },
+                        { $limit: perPage }
+                    ],
+                    total: [{ $count: "count" }]
+                }
+            }
+        ]);
 
-        res.status(200).json({ transactions: data, total });
+        const [{ data, total }] = result;
+
+        const totalCount = total?.[0]?.count || 0;
+
+        res.status(200).json({ transactions: data, total: totalCount });
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Failed to fetch transactions" });
     }
 });
+
 
 module.exports = router;
 
