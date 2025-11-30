@@ -33,7 +33,7 @@ router.post("/add", verifyToken, async (req, res) => {
                  <p>Please click the link below to set your password:</p>
                  <a href="${verifyUrl}" style="color: blue; text-decoration: underline;">Set Password</a>`
 
-        await sendMail(formData.email, "Set admin profile password for Guard House", bodyHtml);
+        // await sendMail(formData.email, "Set admin profile password for Guard House", bodyHtml);
 
         res.status(201).json({ message: "Company & Client Admin added successfully. Verification email sent.", isError: false, company });
 
@@ -44,6 +44,7 @@ router.post("/add", verifyToken, async (req, res) => {
 });
 
 
+// router.get("/all", verifyToken, async (req, res) => {
 router.get("/all", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
@@ -84,26 +85,30 @@ router.get("/all", verifyToken, async (req, res) => {
                         { $skip: skip },
                         { $limit: perPage }
                     ],
-                    total: [{ $count: "count" }],
-                    statusCount: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
-                    paymentCount: [{ $group: { _id: "$paymentStatus", count: { $sum: 1 } } }]
+                    counts: [
+                        {
+                            $group: {
+                                _id: null,
+                                active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
+                                pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
+                                inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
+                                paid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "paid"] }] }, 1, 0] } },
+                                unpaid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "unpaid"] }] }, 1, 0] } },
+                                total: { $sum: 1 }
+                            }
+                        }
+                    ]
                 }
             }
         ]);
 
         const companies = result[0].data;
-        const total = result[0].total[0]?.count || 0;
+        const counts = result[0].counts[0] || { active: 0, pending: 0, inactive: 0, paid: 0, unpaid: 0, total: 0 };
 
-        // Convert status counts into nice object
-        const statusMap = { active: 0, pending: 0, inactive: 0 };
-        result[0].statusCount.forEach(s => { statusMap[s._id] = s.count; });
-
-        // Convert payment counts into nice object
-        const paymentMap = { paid: 0, unpaid: 0 };
-        result[0].paymentCount.forEach(p => { paymentMap[p._id] = p.count; });
-
-        return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals: total, count: { ...statusMap, ...paymentMap } });
-
+        return res.status(200).json({
+            message: "Companies fetched successfully", isError: false, companies, totals: counts.total,
+            count: { active: counts.active, pending: counts.pending, inactive: counts.inactive, paid: counts.paid, unpaid: counts.unpaid }
+        });
     } catch (error) {
         console.error("Get companies error:", error);
         return res.status(500).json({ message: "Something went wrong while getting companies", isError: true, error: error.message });
