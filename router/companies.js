@@ -85,30 +85,32 @@ router.get("/all", verifyToken, async (req, res) => {
                         { $skip: skip },
                         { $limit: perPage }
                     ],
-                    counts: [
-                        {
-                            $group: {
-                                _id: null,
-                                active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
-                                pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
-                                inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
-                                paid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "paid"] }] }, 1, 0] } },
-                                unpaid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "unpaid"] }] }, 1, 0] } },
-                                total: { $sum: 1 }
-                            }
-                        }
-                    ]
+                    total: [{ $count: "count" }],
                 }
             }
         ]);
 
-        const companies = result[0].data;
-        const counts = result[0].counts[0] || { active: 0, pending: 0, inactive: 0, paid: 0, unpaid: 0, total: 0 };
+        const counts = await Companies.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    total: { $sum: 1 },
+                    active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
+                    pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
+                    inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
+                    paid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "paid"] }] }, 1, 0] } },
+                    unpaid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "unpaid"] }] }, 1, 0] } },
+                }
+            }
+        ]);
 
-        return res.status(200).json({
-            message: "Companies fetched successfully", isError: false, companies, totals: counts.total,
-            count: { active: counts.active, pending: counts.pending, inactive: counts.inactive, paid: counts.paid, unpaid: counts.unpaid }
-        });
+        const countResult = counts[0] || { active: 0, pending: 0, inactive: 0, paid: 0, unpaid: 0, total: 0 };
+
+        const companies = result[0].data;
+        const total = result[0].total[0]?.count || 0;
+
+        return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals: total, count: { active: countResult.active, pending: countResult.pending, inactive: countResult.inactive, paid: countResult.paid, unpaid: countResult.unpaid } });
+
     } catch (error) {
         console.error("Get companies error:", error);
         return res.status(500).json({ message: "Something went wrong while getting companies", isError: true, error: error.message });
