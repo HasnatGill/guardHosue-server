@@ -2,6 +2,7 @@ const express = require("express")
 const Companies = require("../models/companies");
 const Transactions = require("../models/Transactions");
 const Users = require("../models/auth");
+const Customers = require("../models/customers")
 const { verifyToken } = require("../middlewares/auth");
 const { getRandomId, getRandomRef } = require("../config/global");
 const sendMail = require("../utils/sendMail");
@@ -243,48 +244,110 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
     }
 })
 
+// router.get("/cards-data", verifyToken, async (req, res) => {
+//     try {
+
+//         const { uid } = req;
+//         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+//         const { status } = req.query;
+
+//         // COMMON FILTERS
+//         // const companyFilter = status ? { status } : {};
+
+//         const guardFilter = { roles: { $in: ["guard"] } };
+//         if (status) guardFilter.status = status;
+
+//         // === Total Count ===
+//         const [companyCount, transactionCount, guardCount, customerCount] = await Promise.all([
+//             Companies.countDocuments(),
+//             Transactions.countDocuments(),
+//             Users.countDocuments(guardFilter),
+//             Customers.countDocuments()
+//         ]);
+
+//         // === Increasing Count (Last 30 days) ===
+//         const lastMonth = new Date();
+//         lastMonth.setDate(lastMonth.getDate() - 30);
+
+//         const [companyIncrease, transactionIncrease, guardIncrease, customerIncrease] = await Promise.all([
+//             Companies.countDocuments({ createdAt: { $gte: lastMonth } }),
+//             Transactions.countDocuments({ createdAt: { $gte: lastMonth } }),
+//             Users.countDocuments({ createdAt: { $gte: lastMonth }, roles: { $in: ["guard"] }, }),
+//             Customers.countDocuments({ createdAt: { $gte: lastMonth } }),
+//         ]);
+
+//         return res.status(200).json({
+//             company: { total: companyCount, increasing: companyIncrease },
+//             transactions: { total: transactionCount, increasing: transactionIncrease },
+//             guards: { total: guardCount, increasing: guardIncrease },
+//             customers: { total: customerCount, increasing: customerIncrease },
+//         });
+
+//     } catch (error) {
+//         console.error("Cards-data error:", error);
+//         res.status(500).json({ message: "Failed to fetch dashboard cards", error: error.message, });
+//     }
+// });
+
 router.get("/cards-data", verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!uid) {
+            return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        }
 
         const { status } = req.query;
 
-        // COMMON FILTERS
-        const companyFilter = status ? { status } : {};
-
+        // Guard filter 🔍
         const guardFilter = { roles: { $in: ["guard"] } };
         if (status) guardFilter.status = status;
 
-        // === Total Count ===
-        const [companyCount, transactionCount, guardCount] = await Promise.all([
-            Companies.countDocuments(),
-            Transactions.countDocuments(),
-            Users.countDocuments(guardFilter),
-        ]);
+        // Date ranges
+        const now = new Date();
 
-        // === Increasing Count (Last 30 days) ===
-        const lastMonth = new Date();
-        lastMonth.setDate(lastMonth.getDate() - 30);
+        const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
-        const [companyIncrease, transactionIncrease, guardIncrease,] = await Promise.all([
-            Companies.countDocuments({ createdAt: { $gte: lastMonth } }),
-            Transactions.countDocuments({ createdAt: { $gte: lastMonth } }),
-            Users.countDocuments({ createdAt: { $gte: lastMonth }, roles: { $in: ["guard"] }, }),
-        ]);
+        // === Helper ===
+        const getStats = (Model, match = {}) =>
+            Model.aggregate([
+                { $match: match },
+                {
+                    $facet: {
+                        total: [{ $count: "count" }],
+                        thisMonth: [{ $match: { createdAt: { $gte: startOfThisMonth } } }, { $count: "count" },],
+                        lastMonth: [{ $match: { createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth, }, }, }, { $count: "count" },],
+                    },
+                },
+                {
+                    $project: {
+                        total: { $ifNull: [{ $arrayElemAt: ["$total.count", 0] }, 0] },
+                        thisMonth: { $ifNull: [{ $arrayElemAt: ["$thisMonth.count", 0] }, 0] },
+                        lastMonth: { $ifNull: [{ $arrayElemAt: ["$lastMonth.count", 0] }, 0] },
+                    },
+                },
+                {
+                    $addFields: {
+                        growth: {
+                            $cond: [
+                                { $eq: ["$lastMonth", 0] }, 100,
+                                { $round: [{ $multiply: [{ $divide: [{ $subtract: ["$thisMonth", "$lastMonth"] }, "$lastMonth"] }, 100] }, 2] }]
+                        }
+                    }
+                }
+            ]);
 
-        return res.status(200).json({
-            company: { total: companyCount, increasing: companyIncrease },
-            transactions: { total: transactionCount, increasing: transactionIncrease },
-            guards: { total: guardCount, increasing: guardIncrease },
-        });
+        // Run all together
+        const [company, transactions, guards, customers] = await Promise.all([getStats(Companies), getStats(Transactions), getStats(Users, guardFilter), getStats(Customers),]);
+
+        return res.status(200).json({ company: company[0], transactions: transactions[0], guards: guards[0], customers: customers[0], });
 
     } catch (error) {
         console.error("Cards-data error:", error);
         res.status(500).json({ message: "Failed to fetch dashboard cards", error: error.message, });
     }
 });
-
 
 module.exports = router
