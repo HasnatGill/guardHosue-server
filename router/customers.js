@@ -98,7 +98,7 @@ router.get("/all-customers", verifyToken, async (req, res) => {
 
         const customers = await Customers.aggregate([
             { $match: match },
-            { $project: { _id: 0, id: 1, name: 1 } },
+            { $project: { _id: 0, id: 1, name: 1, country: 1, city: 1, province: 1, zipCode: 1 } },
             { $sort: { name: 1 } }
         ]);
 
@@ -203,11 +203,11 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
 
         if (!deletedCustomer) { return res.status(404).json({ message: "Customer not found", isError: true }); }
 
-        res.status(200).json({ message: `Customer ${status === "active" ? "restore" : "deleted"} successfully`, isError: false });
+        res.status(200).json({ message: `Customer deleted successfully`, isError: false });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Something went wrong while updating the customer status", isError: true, error });
+        res.status(500).json({ message: "Something went wrong while deleting the customer", isError: true, error });
     }
 });
 
