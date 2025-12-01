@@ -33,7 +33,7 @@ router.post("/add", verifyToken, async (req, res) => {
                  <p>Please click the link below to set your password:</p>
                  <a href="${verifyUrl}" style="color: blue; text-decoration: underline;">Set Password</a>`
 
-        // await sendMail(formData.email, "Set admin profile password for Guard House", bodyHtml);
+        await sendMail(formData.email, "Set admin profile password for Guard House", bodyHtml);
 
         res.status(201).json({ message: "Company & Client Admin added successfully. Verification email sent.", isError: false, company });
 
@@ -126,8 +126,6 @@ router.patch("/payment-status/:id", verifyToken, async (req, res) => {
 
         const companyId = req.params.id;
         const { paymentStatus, amount = 0, method = "manual", notes = "" } = req.body;
-
-        // console.log('paymentStatus', paymentStatus)
 
         if (!["paid"].includes(paymentStatus)) { return res.status(400).json({ message: "Invalid update. Payment status can only be changed from 'unpaid' to 'paid'." }); }
 
@@ -261,7 +259,7 @@ router.get("/cards-data", verifyToken, async (req, res) => {
 
         // === Total Count ===
         const [companyCount, transactionCount, guardCount] = await Promise.all([
-            Companies.countDocuments(companyFilter),
+            Companies.countDocuments(),
             Transactions.countDocuments(),
             Users.countDocuments(guardFilter),
         ]);
