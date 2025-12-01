@@ -3,7 +3,7 @@ const { Schema } = mongoose
 
 const schema = new Schema({
     uid: { type: String, required: true, unique: true },
-    companyId: { type: String, required: false },
+    companyId: { type: String, required: true },
     email: {
         type: String, required: false, unique: false, default: "",
         validate: {
@@ -26,7 +26,9 @@ const schema = new Schema({
     address: { type: String, default: "" },
     phone: { type: String, default: "" },
     photoURL: { type: String, default: "" },
-    photoPublicId: { type: String, default: "" },
+    perHour: { type: Number, default: 0 },
+    expireFrom: { type: Date, default: null },
+    expireTo: { type: Date, default: null },
     isEmailVerify: { type: Boolean, default: false },
     verifyToken: { type: String, default: "" },
     status: { type: String, default: "active" },

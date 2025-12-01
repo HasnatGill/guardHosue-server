@@ -185,10 +185,10 @@ router.post("/set-password", async (req, res) => {
                 isEmailVerify: true,
                 verifyToken: ""
             },
-            { new: true, runValidators: false } // IMPORTANT
+            { new: true, runValidators: false }
         );
 
-        if (user.companyId) {
+        if (user.companyId && user.roles[0] === "admin") {
             await Companies.findOneAndUpdate(
                 { id: user.companyId },
                 { status: "active" },

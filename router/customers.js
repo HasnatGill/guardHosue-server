@@ -43,7 +43,6 @@ router.get("/all", verifyToken, async (req, res) => {
         const skip = (pageNo - 1) * perPage;
 
         const match = {};
-        console.log('status', status)
         if (status) match.status = status;
 
         const result = await Customers.aggregate([
