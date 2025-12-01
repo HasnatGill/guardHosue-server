@@ -1,8 +1,8 @@
 const express = require("express")
 const Sites = require("../models/sites");
-const Customers = require("../models/customers")
+// const Customers = require("../models/customers")
 const { verifyToken } = require("../middlewares/auth")
-const { getRandomId } = require("../config/global");
+const { getRandomId, cleanObjectValues } = require("../config/global");
 
 const router = express.Router()
 
@@ -63,7 +63,7 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const { status, customerId, name, longitude, latitude, perPage = 10, pageNo = 1 } = req.query
+        const { status, customerId, name, longitude, latitude, perPage = 10, pageNo = 1 } = cleanObjectValues(req.query);
 
         const match = {}
         if (status) match.status = status

@@ -5,6 +5,20 @@ const getRandomRef = () => Math.random().toString().slice(2, 11)
 const getRandomOrderNo = () => Math.floor(100000 + Math.random() * 900000)
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
+const cleanObjectValues = (obj) => {
+    const invalid = ["", "undefined", "null"];
+
+    return Object.fromEntries(
+        Object.entries(obj).map(([key, value]) => [
+            key,
+            value == null || invalid.includes(String(value).trim())
+                ? null
+                : value
+        ])
+    );
+};
+
+
 const hasRole = (user, requiredRoles) => { return user.roles.some(role => requiredRoles.includes(role)); }
 
 const getUser = async (query, res, projection = "-password") => {
@@ -13,4 +27,4 @@ const getUser = async (query, res, projection = "-password") => {
     return user
 }
 
-module.exports = { getRandomId, hasRole, getUser, getRandomRef, getRandomOrderNo, generateOTP }
+module.exports = { getRandomId, hasRole, getUser, getRandomRef, getRandomOrderNo, generateOTP, cleanObjectValues }

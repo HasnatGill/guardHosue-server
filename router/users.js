@@ -6,51 +6,90 @@ const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, } = require("../config/global")
 const { cloudinary } = require("../config/cloudinary")
 
-const storage = multer.memoryStorage()
-const upload = multer({ storage })
+const upload = require("../middlewares/upload");
+
+// const storage = multer.memoryStorage()
+// const upload = multer({ storage })
 const router = express.Router()
+
+// router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
+//     try {
+
+//         const { uid } = req
+//         let formData = req.body
+//         let { firstName, lastName, fullName, email, phone, gender } = formData
+
+//         if (!uid) { return res.status(401).json({ message: "Permission denied.", isError: true }) }
+
+//         const user = await Users.findOne({ $or: [{ email }, { phone }] });
+//         if (user) { return res.status(401).json({ message: user.phone === phone ? "Phone is already in use" : "Email is already in use", isError: true }) }
+
+//         const hashedPassword = await bcrypt.hash("g12345", 10)
+
+//         let photoURL = "", photoPublicId = "", newUserUID = getRandomId()
+//         if (req.file) {
+//             await new Promise((resolve, reject) => {
+//                 const uploadStream = cloudinary.uploader.upload_stream(
+//                     { folder: 'guardHouse/guards' }, // Optional: specify a folder in Cloudinary
+//                     (error, result) => {
+//                         if (error) { return reject(error); }
+//                         photoURL = result.secure_url; photoPublicId = result.public_id;
+//                         resolve();
+//                     }
+//                 )
+//                 uploadStream.end(req.file.buffer);
+//             });
+//         }
+
+//         const newUserData = { fullName, firstName, lastName, email, phone, gender, uid: newUserUID, createdBy: uid, password: hashedPassword, photoURL, photoPublicId }
+
+//         const newUser = new Users(newUserData)
+//         await newUser.save()
+
+//         res.status(201).json({ message: "A new user has been successfully added", isError: false, guard: newUser })
+
+//     } catch (error) {
+//         console.error(error)
+//         res.status(500).json({ message: "Something went wrong while adding the new user", isError: true, error })
+//     }
+// })
 
 router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
     try {
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Permission denied" });
 
-        const { uid } = req
-        let formData = req.body
-        let { firstName, lastName, fullName, email, phone, gender } = formData
+        let { firstName, lastName, fullName, email, phone, gender } = req.body;
 
-        if (!uid) { return res.status(401).json({ message: "Permission denied.", isError: true }) }
+        // Image URL
+        let photoURL = "";
+        if (req.file) { photoURL = `${req.protocol}://${req.get("host")}/uploads/images/${req.file.filename}`; }
 
-        const user = await Users.findOne({ $or: [{ email }, { phone }] });
-        if (user) { return res.status(401).json({ message: user.phone === phone ? "Phone is already in use" : "Email is already in use", isError: true }) }
+        const hashedPassword = await bcrypt.hash("g12345", 10);
+        const newUserUID = getRandomId();
 
-        const hashedPassword = await bcrypt.hash("g12345", 10)
+        const newUser = new Users({
+            firstName,
+            lastName,
+            fullName,
+            email,
+            phone,
+            gender,
+            uid: newUserUID,
+            password: hashedPassword,
+            photoURL,
+            createdBy: uid
+        });
 
-        let photoURL = "", photoPublicId = "", newUserUID = getRandomId()
-        if (req.file) {
-            await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'guardHouse/guards' }, // Optional: specify a folder in Cloudinary
-                    (error, result) => {
-                        if (error) { return reject(error); }
-                        photoURL = result.secure_url; photoPublicId = result.public_id;
-                        resolve();
-                    }
-                )
-                uploadStream.end(req.file.buffer);
-            });
-        }
+        await newUser.save();
 
-        const newUserData = { fullName, firstName, lastName, email, phone, gender, uid: newUserUID, createdBy: uid, password: hashedPassword, photoURL, photoPublicId }
-
-        const newUser = new Users(newUserData)
-        await newUser.save()
-
-        res.status(201).json({ message: "A new user has been successfully added", isError: false, guard: newUser })
+        res.status(201).json({ message: "New user added successfully", guard: newUser });
 
     } catch (error) {
-        console.error(error)
-        res.status(500).json({ message: "Something went wrong while adding the new user", isError: true, error })
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong", error });
     }
-})
+});
 
 router.get("/all", verifyToken, async (req, res) => {
     try {

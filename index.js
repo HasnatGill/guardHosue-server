@@ -6,6 +6,7 @@ const morgan = require("morgan")
 const http = require("http")
 const bodyParser = require("body-parser")
 const { connectDB } = require("./config/db")
+const path = require("path");
 
 const auth = require("./router/auth")
 const companies = require("./router/companies")
@@ -62,6 +63,10 @@ app.use("/transactions", transactions)
 app.use("/sites-registered", sites)
 app.use("/users", users)
 app.use("/schedules", schedules)
+
+app.use("/uploads/images", express.static("uploads"));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
 
 server.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Server + Socket.IO running on PORT ${PORT}`)
