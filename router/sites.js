@@ -82,9 +82,20 @@ router.get("/all", verifyToken, async (req, res) => {
             { $limit: Number(perPage) }
         ])
 
-        const total = await Sites.countDocuments(match)
+        const counts = await Sites.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
+                    inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
+                }
+            }
+        ]);
 
-        res.status(200).json({ message: "Sites fetched", isError: false, sites, total })
+        const total = await Sites.countDocuments(match)
+        const countResult = counts[0] || { active: 0, inactive: 0 };
+
+        res.status(200).json({ message: "Sites fetched", isError: false, sites, total, count: { active: countResult.active, inactive: countResult.inactive } })
     } catch (error) {
         console.error(error)
         res.status(500).json({ message: "Something went wrong while getting the sites", isError: true, error })

@@ -76,19 +76,32 @@ router.get("/all-users", verifySuperAdmin, async (req, res) => {
 
 router.get("/user", verifyToken, async (req, res) => {
     try {
+        const { uid } = req;
 
-        const { uid } = req
+        const user = await Users.aggregate([
+            { $match: { uid } },
+            { $project: { password: 0 } },
+            {
+                $lookup: {
+                    from: "companies",
+                    localField: "companyId",
+                    foreignField: "id",
+                    as: "company"
+                }
+            },
+            { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
+        ]);
 
-        const user = await Users.findOne({ uid }).select("-password").exec()
-        if (!user) { return res.status(404).json({ message: "User not found" }) }
+        if (!user.length) { return res.status(404).json({ message: "User not found" }); }
 
-        res.status(200).json({ user })
+        res.status(200).json({ user: user[0] });
 
     } catch (error) {
-        console.error(error)
-        res.status(500).json({ message: "Something went wrong. Internal server error.", isError: true, error })
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong. Internal server error.", isError: true, error });
     }
-})
+});
+
 
 router.patch("/update", verifyToken, async (req, res) => {
     try {
