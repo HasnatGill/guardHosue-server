@@ -52,12 +52,11 @@ router.get("/all", verifyToken, async (req, res) => {
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, paymentStatus } = req.query;
-        // console.log('req.query', req.query)
+        
         perPage = Number(perPage);
         pageNo = Number(pageNo);
         const skip = (pageNo - 1) * perPage;
 
-        // Expire pay logic (keep same)
         const now = new Date();
         await Companies.updateMany(
             { paymentStatus: "paid", expirePackage: { $lte: now } },
@@ -95,7 +94,6 @@ router.get("/all", verifyToken, async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    total: { $sum: 1 },
                     active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
                     pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
                     inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
@@ -105,12 +103,11 @@ router.get("/all", verifyToken, async (req, res) => {
             }
         ]);
 
-        const countResult = counts[0] || { active: 0, pending: 0, inactive: 0, paid: 0, unpaid: 0, total: 0 };
-
         const companies = result[0].data;
-        const total = result[0].total[0]?.count || 0;
+        const totals = result[0].total[0]?.count || 0;
+        const countResult = counts[0] || { active: 0, pending: 0, inactive: 0, paid: 0, unpaid: 0 };
 
-        return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals: total, count: { active: countResult.active, pending: countResult.pending, inactive: countResult.inactive, paid: countResult.paid, unpaid: countResult.unpaid } });
+        return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals, count: { active: countResult.active, pending: countResult.pending, inactive: countResult.inactive, paid: countResult.paid, unpaid: countResult.unpaid } });
 
     } catch (error) {
         console.error("Get companies error:", error);

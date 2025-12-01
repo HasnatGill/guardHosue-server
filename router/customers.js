@@ -43,12 +43,11 @@ router.get("/all", verifyToken, async (req, res) => {
         const skip = (pageNo - 1) * perPage;
 
         const match = {};
-
+        console.log('status', status)
         if (status) match.status = status;
 
         const result = await Customers.aggregate([
             { $match: match },
-
             {
                 $facet: {
                     data: [
@@ -56,27 +55,31 @@ router.get("/all", verifyToken, async (req, res) => {
                         { $skip: skip },
                         { $limit: perPage },
                     ],
-                    total: [{ $count: "count" }],
-                    statusCount: [{ $group: { _id: "$status", count: { $sum: 1 } } }]
+                    totalDoc: [{ $count: "total" }],
+                }
+
+            }
+        ]);
+
+        const counts = await Customers.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
+                    inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
                 }
             }
         ]);
 
         const customers = result[0].data;
-        const total = result[0].total[0].count || 0
-        // Convert counts to clean object
-        const count = { active: 0, inactive: 0 };
-        result[0].statusCount.forEach(s => { count[s._id] = s.count; });
+        const countResult = counts[0] || { active: 0, inactive: 0 };
+        const total = result[0]?.totalDoc?.[0]?.total || 0;
 
-        res.status(200).json({ message: "Customers fetched successfully", isError: false, customers, count, total });
+        res.status(200).json({ message: "Customers fetched successfully", isError: false, customers, total, count: { active: countResult.active, inactive: countResult.inactive } });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({
-            message: "Something went wrong while getting the customers",
-            isError: true,
-            error: error.message
-        });
+        res.status(500).json({ message: "Something went wrong while getting the customers", isError: true, error: error.message });
     }
 });
 
