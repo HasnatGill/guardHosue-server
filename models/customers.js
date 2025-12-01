@@ -19,7 +19,7 @@ const customerSchema = new mongoose.Schema({
     referenceId: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, },
     country: { type: Schema.Types.Mixed, required: true },
-    province: { type: Schema.Types.Mixed, required: true },
+    province: { type: Schema.Types.Mixed, required: false, default: '{}' },
     city: { type: Schema.Types.Mixed, required: false, default: "{}" },
     zipCode: { type: String, required: true, trim: true },
     address: { type: String, required: true, trim: true },
