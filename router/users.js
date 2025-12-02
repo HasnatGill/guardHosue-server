@@ -2,7 +2,7 @@ const express = require("express")
 // const bcrypt = require("bcrypt")
 const Users = require("../models/auth")
 const { verifyToken } = require("../middlewares/auth")
-const { getRandomId, } = require("../config/global")
+const { getRandomId, cleanObjectValues, } = require("../config/global")
 
 const upload = require("../middlewares/upload");
 const sendMail = require("../utils/sendMail");
@@ -48,7 +48,8 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        let { status = "", perPage = 10, pageNo = 1 } = req.query;
+        let { status = "", perPage = 10, pageNo = 1, name, phone, email } = cleanObjectValues(req.query);
+
         perPage = Number(perPage);
         pageNo = Number(pageNo);
         const skip = (pageNo - 1) * perPage;
@@ -56,8 +57,11 @@ router.get("/all", verifyToken, async (req, res) => {
         // Build match filter
         const match = { roles: { $in: ["guard"] } };
         if (status) match.status = status;
+        if (name) { match.fullName = { $regex: new RegExp(name.trim(), "i") }; }
+        if (phone) { match.phone = { $regex: new RegExp(phone.trim(), "i") }; }
+        if (email) { match.email = { $regex: new RegExp(email.trim(), "i") }; }
 
-        // Aggregation for paginated guards
+
         const result = await Users.aggregate([
             { $match: match },
             {
@@ -86,7 +90,7 @@ router.get("/all", verifyToken, async (req, res) => {
         ]);
 
         const guards = result[0].data;
-        const countResult = counts[0] || { active: 0, inactive: 0};
+        const countResult = counts[0] || { active: 0, inactive: 0 };
         const total = result[0]?.totalDoc?.[0]?.total || 0;
 
         res.status(200).json({ message: "Guards fetched successfully", isError: false, guards, total, count: countResult, });
