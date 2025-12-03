@@ -1,11 +1,14 @@
 const express = require("express")
-// const bcrypt = require("bcrypt")
+const multer = require("multer");
 const Users = require("../models/auth")
 const { verifyToken } = require("../middlewares/auth")
+const { cloudinary, deleteFileFromCloudinary } = require("../config/cloudinary")
 const { getRandomId, cleanObjectValues, } = require("../config/global")
 
-const upload = require("../middlewares/upload");
 const sendMail = require("../utils/sendMail");
+
+const storage = multer.memoryStorage()
+const upload = multer({ storage })
 
 const router = express.Router()
 
@@ -18,13 +21,26 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
 
         let { firstName, lastName, fullName, email, phone, gender, perHour, expireFrom, expireTo, companyId } = req.body;
 
-        let photoURL = "";
-        if (req.file) { photoURL = `${req.protocol}://${req.get("host")}/uploads/images/${req.file.filename}`; }
+
+        let photoURL = "", photoPublicId = "";
+        if (req.file) {
+            await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    { folder: 'GuardHouse/users' },
+                    (error, result) => {
+                        if (error) { return reject(error); }
+                        photoURL = result.secure_url; photoPublicId = result.public_id;
+                        resolve();
+                    }
+                )
+                uploadStream.end(req.file.buffer);
+            });
+        }
 
         const newUserUID = getRandomId();
         const token = getRandomId();
 
-        const newUser = new Users({ firstName, lastName, companyId, verifyToken: token, fullName, email, phone, gender, uid: newUserUID, password: null, photoURL, createdBy: uid, perHour, expireFrom, expireTo });
+        const newUser = new Users({ firstName, lastName, companyId, verifyToken: token, fullName, email, phone, gender, uid: newUserUID, password: null, photoURL, createdBy: uid, perHour, expireFrom, expireTo, photoPublicId });
 
         await newUser.save();
 
@@ -110,10 +126,22 @@ router.patch("/update/:id", verifyToken, upload.single("image"), async (req, res
         const user = await Users.findOne({ uid: id });
         if (!user) { return res.status(404).json({ message: "Guard not found" }) }
 
-        let { photoURL = "", } = user
-        if (req.file) { photoURL = `${req.protocol}://${req.get("host")}/uploads/images/${req.file.filename}`; }
+        let { photoURL = "", photoPublicId = "" } = user
+        if (req.file) {
+            await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    { folder: 'seeraht/users' }, // Optional: specify a folder in Cloudinary
+                    (error, result) => {
+                        if (error) { return reject(error); }
+                        photoURL = result.secure_url; photoPublicId = result.public_id;
+                        resolve();
+                    }
+                )
+                uploadStream.end(req.file.buffer);
+            });
+        }
 
-        const newData = { ...formData, photoURL }
+        const newData = { ...formData, photoURL, photoPublicId }
 
         const updatedUser = await Users.findOneAndUpdate({ uid: id }, newData, { new: true })
         if (!updatedUser) { return res.status(404).json({ message: "Guard didn't update" }) }
@@ -174,7 +202,9 @@ router.delete("/single/:userId", verifyToken, async (req, res) => {
 
         const { userId } = req.params;
 
+        const user = await Users.findOne({ uid: userId });
         const deletedGuard = await Users.findOneAndDelete({ uid: userId });
+        if (user.photoPublicId) { await deleteFileFromCloudinary(user.photoPublicId) }
 
         if (!deletedGuard) { return res.status(404).json({ message: "guard not found", isError: true }); }
 
@@ -193,13 +223,24 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
         const user = await Users.findOne({ uid });
         if (!user) return res.status(404).json({ isError: true, message: "User not found" });
 
-        let { photoURL } = user;
+        let { photoURL = "", photosPublicId = "" } = user
+        if (req.file) {
+            await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    { folder: 'GuardHouse/users' }, // Optional: specify a folder in Cloudinary
+                    (error, result) => {
+                        if (error) { return reject(error); }
+                        photoURL = result.secure_url; photoPublicId = result.public_id;
+                        resolve();
+                    }
+                )
+                uploadStream.end(req.file.buffer);
+            });
+        }
 
-        // ---- Upload New Image (if provided)
-        if (req.file) { photoURL = `${req.protocol}://${req.get("host")}/uploads/images/${req.file.filename}`; }
 
         // ---- Prepare Updated Fields
-        const updatedData = { ...req.body, photoURL, updatedAt: new Date() };
+        const updatedData = { ...req.body, photoURL, photoPublicId, updatedAt: new Date() };
 
         const updatedUser = await Users.findOneAndUpdate({ uid }, updatedData, { new: true });
 

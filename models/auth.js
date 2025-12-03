@@ -26,6 +26,7 @@ const schema = new Schema({
     address: { type: String, default: "" },
     phone: { type: String, default: "" },
     photoURL: { type: String, default: "" },
+    photoPublicId: { type: String, default: "" },
     perHour: { type: Number, default: 0 },
     expireFrom: { type: Date, default: null },
     expireTo: { type: Date, default: null },
