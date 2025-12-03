@@ -23,7 +23,8 @@ connectDB();
 const app = express()
 
 app.use(cors({
-    origin: [APP_URL, APP_URL_1, APP_URL_2],
+    // origin: [APP_URL, APP_URL_1, APP_URL_2, "https://guard-house-dashboard-i2a5.vercel.app","*"],
+    origin: "*",
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
