@@ -21,6 +21,8 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
 
         let { firstName, lastName, fullName, email, phone, gender, perHour, expireFrom, expireTo, companyId } = req.body;
 
+        const existUser = Users.findOne({ email }).lean()
+        if (existUser) return res.status(401).json({ message: "This is Email already used.", isError: true })
 
         let photoURL = "", photoPublicId = "";
         if (req.file) {
@@ -112,7 +114,7 @@ router.get("/all", verifyToken, async (req, res) => {
         res.status(200).json({ message: "Guards fetched successfully", isError: false, guards, total, count: countResult, });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Something went wrong while getting the guards", isError: true, error: error.message, });
+        res.status(500).json({ message: "Something went wrong while getting the guards", isError: true, error: error, });
     }
 });
 
