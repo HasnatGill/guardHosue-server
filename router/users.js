@@ -21,7 +21,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
 
         let { firstName, lastName, fullName, email, phone, gender, perHour, expireFrom, expireTo, companyId } = req.body;
 
-        const existUser = Users.findOne({ email }).lean()
+        const existUser = await Users.findOne({ email })
         if (existUser) return res.status(401).json({ message: "This is Email already used.", isError: true })
 
         let photoURL = "", photoPublicId = "";
@@ -65,7 +65,7 @@ router.get("/all", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
 
-        const user = Users.findOne({ uid }).lean()
+        const user = await Users.findOne({ uid }).lean()
         if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         let { status = "", perPage = 10, pageNo = 1, name, phone, email } = cleanObjectValues(req.query);
@@ -100,7 +100,12 @@ router.get("/all", verifyToken, async (req, res) => {
 
         // Aggregation for counts
         const counts = await Users.aggregate([
-            { $match: { roles: { $in: ["guard"], companyId: user.companyId } } },
+            {
+                $match: {
+                    roles: { $in: ["guard"] },
+                    companyId: user.companyId
+                }
+            },
             {
                 $group: {
                     _id: null,

@@ -12,7 +12,7 @@ router.post("/add", verifyToken, async (req, res) => {
 
         const { uid } = req;
 
-        const user = Users.findOne({ uid })
+        const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         let formData = req.body
@@ -34,7 +34,7 @@ router.get("/all", verifyToken, async (req, res) => {
 
         const { uid } = req;
 
-        const user = Users.findOne({ uid })
+        const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         const { status, customerId, name, longitude, latitude, perPage = 10, pageNo = 1 } = cleanObjectValues(req.query);

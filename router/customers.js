@@ -13,11 +13,11 @@ router.post("/add", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
 
-        const user = Users.findOne({ uid })
+        const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         let formData = req.body;
-
+        console.log('user', user.toObject())
         const customer = new Customers({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId });
 
         await customer.save();
@@ -38,7 +38,7 @@ router.get("/all", verifyToken, async (req, res) => {
 
         const { uid } = req;
 
-        const user = Users.findOne({ uid })
+        const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         let { status = "", perPage = 10, pageNo = 1, } = req.query;
@@ -96,13 +96,17 @@ router.get("/all", verifyToken, async (req, res) => {
 =============================== */
 router.get("/all-customers", verifyToken, async (req, res) => {
     try {
+
         const { uid } = req;
-        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
+
+        const user = await Users.findOne({ uid })
+        if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         const { status = "" } = req.query;
 
         const match = {};
         if (status) match.status = status;
+        if (user.companyId) match.companyId = user.companyId
 
         const customers = await Customers.aggregate([
             { $match: match },

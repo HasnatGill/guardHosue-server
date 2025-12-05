@@ -12,7 +12,7 @@ const schema = new Schema({
     zipCode: { type: String, required: true, trim: true },
     latitude: { type: String, required: true, trim: true },
     longitude: { type: String, required: true, trim: true },
-    meters: { type: String, required: true, trim: true },
+    meters: { type: Number, required: true, trim: true },
     address: { type: String, required: true, trim: true },
     status: { type: String, default: "active" },
     createdBy: { type: String, required: true },

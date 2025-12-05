@@ -14,15 +14,18 @@ const { JWT_SECRET_KEY } = process.env
 router.post("/register", async (req, res) => {
     try {
 
+        // const { uid } = req;
+        // if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }) }
+
         const { firstName, lastName, fullName, email, password } = req.body
 
         const user = await Users.findOne({ email })
         if (user) { return res.status(401).json({ message: "Email is already in use", isError: true }) }
 
         const hashedPassword = await bcrypt.hash(password, 10)
-        const uid = getRandomId()
+        const userId = getRandomId()
 
-        const newUserData = { firstName, lastName, fullName, email, password: hashedPassword, uid, createdBy: uid }
+        const newUserData = { firstName, lastName, fullName, email, password: hashedPassword, uid: userId, createdBy: userId, }
 
         const newUser = new Users(newUserData)
         await newUser.save()
