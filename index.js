@@ -13,6 +13,7 @@ const companies = require("./router/companies")
 const customers = require("./router/customers")
 const transactions = require("./router/transactions")
 const sites = require("./router/sites")
+const shifts = require("./router/shifts")
 const users = require("./router/users")
 const schedules = require("./router/schedule")
 
@@ -62,6 +63,7 @@ app.use("/customers", customers)
 app.use("/transactions", transactions)
 app.use("/sites-registered", sites)
 app.use("/users", users)
+app.use("shifts", shifts)
 app.use("/schedules", schedules)
 
 app.use("/uploads/images", express.static("uploads"));

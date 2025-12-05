@@ -1,5 +1,7 @@
 const express = require("express")
 const Shifts = require("../models/shifts");
+const Sites = require("../models/sites")
+const Users = require("../models/auth")
 // const Customers = require("../models/customers")
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId } = require("../config/global");
@@ -25,45 +27,149 @@ router.post("/add", verifyToken, async (req, res) => {
     }
 })
 
-
-router.get("/all/:customerId/:module", verifyToken, async (req, res) => {
+router.get("/all/:model", verifyToken, async (req, res) => {
     try {
+        const { model } = req.params;
 
-        const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        // -----------------------------------------
+        //  MODEL = SITES  (sites array return hogi)
+        // -----------------------------------------
+        if (model === "site") {
 
-        // const {customerId} = req.params
-
-        // const { status, customerId, name, longitude, latitude, perPage = 10, pageNo = 1 } = cleanObjectValues(req.query);
-
-        const match = {}
-
-        const shifts = await Shifts.aggregate([
-            { $match: match },
-            { $lookup: { from: "customers", localField: "customerId", foreignField: "id", as: "customer" } },
-            { $unwind: { path: "$customer", preserveNullAndEmptyArrays: true } },
-            { $addFields: { customer: { $ifNull: ["$customer.name", "Unknown Customer"] } } },
-            { $sort: { createdAt: -1 } },
-            { $skip: (pageNo - 1) * perPage },
-            { $limit: Number(perPage) }
-        ])
-
-        const counts = await Shifts.aggregate([
-            {
-                $group: {
-                    _id: null,
-                    active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
-                    inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
+            const result = await Sites.aggregate([
+                {
+                    $lookup: {
+                        from: "shifts",
+                        localField: "id",
+                        foreignField: "siteId",
+                        as: "shifts"
+                    }
+                },
+                {
+                    $unwind: {
+                        path: "$shifts",
+                        preserveNullAndEmptyArrays: true
+                    }
+                },
+                {
+                    $lookup: {
+                        from: "users",
+                        localField: "shifts.guardId",
+                        foreignField: "uid",
+                        as: "guardInfo"
+                    }
+                },
+                {
+                    $unwind: {
+                        path: "$guardInfo",
+                        preserveNullAndEmptyArrays: true
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$id",
+                        name: { $first: "$name" },
+                        shifts: {
+                            $push: {
+                                id: "$shifts.id",
+                                date: "$shifts.date",
+                                employeeName: "$guardInfo.fullName",
+                                start: "$shifts.start",
+                                end: "$shifts.end",
+                                status: "$shifts.status",
+                                liveStatus: "$shifts.liveStatus"
+                            }
+                        }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        id: "$_id",
+                        name: 1,
+                        shifts: 1
+                    }
                 }
-            }
-        ]);
+            ]);
 
-        const total = await Sites.countDocuments(match)
-        const countResult = counts[0] || { active: 0, inactive: 0 };
+            return res.json({ model: "sites", data: result });
+        }
 
-        res.status(200).json({ message: "Sites fetched", isError: false, sites, total, count: { active: countResult.active, inactive: countResult.inactive } })
-    } catch (error) {
-        console.error(error)
-        res.status(500).json({ message: "Something went wrong while getting the sites", isError: true, error })
+        // -----------------------------------------
+        //  MODEL = GUARD  (employees array return hogi)
+        // -----------------------------------------
+        if (model === "guard") {
+
+            const result = await Users.aggregate([
+                {
+                    $match: { roles: { $in: ["guard"] } }
+                },
+                {
+                    $lookup: {
+                        from: "shifts",
+                        localField: "uid",
+                        foreignField: "guardId",
+                        as: "shifts"
+                    }
+                },
+                {
+                    $unwind: {
+                        path: "$shifts",
+                        preserveNullAndEmptyArrays: true
+                    }
+                },
+                {
+                    $lookup: {
+                        from: "sites",
+                        localField: "shifts.siteId",
+                        foreignField: "id",
+                        as: "siteInfo"
+                    }
+                },
+                {
+                    $unwind: {
+                        path: "$siteInfo",
+                        preserveNullAndEmptyArrays: true
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$uid",
+                        name: { $first: "$fullName" },
+                        shifts: {
+                            $push: {
+                                id: "$shifts.id",
+                                date: "$shifts.date",
+                                siteName: "$siteInfo.name",
+                                start: "$shifts.start",
+                                end: "$shifts.end",
+                                status: "$shifts.status",
+                                liveStatus: "$shifts.liveStatus"
+                            }
+                        }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        id: "$_id",
+                        name: 1,
+                        shifts: 1
+                    }
+                }
+            ]);
+
+            return res.json({ model: "employees", data: result });
+        }
+
+        return res.status(400).json({ message: "Invalid model. Use /site or /guard" });
+
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server Error", err });
     }
-})
+});
+
+
+
+module.exports = router

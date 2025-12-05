@@ -64,7 +64,9 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
 router.get("/all", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
+
+        const user = Users.findOne({ uid }).lean()
+        if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         let { status = "", perPage = 10, pageNo = 1, name, phone, email } = cleanObjectValues(req.query);
 
@@ -75,6 +77,7 @@ router.get("/all", verifyToken, async (req, res) => {
         // Build match filter
         const match = { roles: { $in: ["guard"] } };
         if (status) match.status = status;
+        if (user.companyId) match.companyId = user.companyId
         if (name) { match.fullName = { $regex: new RegExp(name.trim(), "i") }; }
         if (phone) { match.phone = { $regex: new RegExp(phone.trim(), "i") }; }
         if (email) { match.email = { $regex: new RegExp(email.trim(), "i") }; }
