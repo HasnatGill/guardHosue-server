@@ -15,6 +15,7 @@ const contactSchema = new mongoose.Schema({
 const customerSchema = new mongoose.Schema({
     id: { type: String, required: true, unique: true },
     name: { type: String, required: true, trim: true },
+    companyId: { type: String, required: true, ref: "companies" },
     referenceNo: { type: String, required: true, trim: true },
     referenceId: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, },

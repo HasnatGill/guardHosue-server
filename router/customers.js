@@ -1,5 +1,6 @@
 const express = require("express");
 const Customers = require("../models/customers"); // your customer model
+const Users = require("../models/auth")
 const { verifyToken } = require("../middlewares/auth");
 const { getRandomId } = require("../config/global");
 
@@ -12,11 +13,12 @@ router.post("/add", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
 
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        const user = Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         let formData = req.body;
 
-        const customer = new Customers({ ...formData, id: getRandomId(), createdBy: uid });
+        const customer = new Customers({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId });
 
         await customer.save();
 
@@ -33,8 +35,11 @@ router.post("/add", verifyToken, async (req, res) => {
 =============================== */
 router.get("/all", verifyToken, async (req, res) => {
     try {
+
         const { uid } = req;
-        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
+
+        const user = Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         let { status = "", perPage = 10, pageNo = 1, } = req.query;
 
@@ -42,8 +47,11 @@ router.get("/all", verifyToken, async (req, res) => {
         pageNo = Number(pageNo);
         const skip = (pageNo - 1) * perPage;
 
-        const match = {};
+        let match = {};
+        let companyMatch = {}
         if (status) match.status = status;
+        if (user.companyId) match.companyId = user.companyId
+        if (user.companyId) companyMatch.companyId = user.companyId
 
         const result = await Customers.aggregate([
             { $match: match },
@@ -61,6 +69,7 @@ router.get("/all", verifyToken, async (req, res) => {
         ]);
 
         const counts = await Customers.aggregate([
+            { $match: companyMatch },
             {
                 $group: {
                     _id: null,

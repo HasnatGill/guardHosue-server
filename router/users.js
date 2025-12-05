@@ -88,10 +88,10 @@ router.get("/all", verifyToken, async (req, res) => {
             {
                 $facet: {
                     data: [
-                        { $sort: { createdAt: -1 } }, // Sort newest first
+                        { $sort: { createdAt: -1 } },
                         { $skip: skip },
                         { $limit: perPage },
-                        { $project: { password: 0 } }, // Remove password
+                        { $project: { password: 0 } },
                     ],
                     totalDoc: [{ $count: "total" }],
                 },
@@ -100,7 +100,7 @@ router.get("/all", verifyToken, async (req, res) => {
 
         // Aggregation for counts
         const counts = await Users.aggregate([
-            { $match: { roles: { $in: ["guard"] } } },
+            { $match: { roles: { $in: ["guard"], companyId: user.companyId } } },
             {
                 $group: {
                     _id: null,
@@ -135,7 +135,7 @@ router.patch("/update/:id", verifyToken, upload.single("image"), async (req, res
         if (req.file) {
             await new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'seeraht/users' }, // Optional: specify a folder in Cloudinary
+                    { folder: 'GuardHouse/users' }, // Optional: specify a folder in Cloudinary
                     (error, result) => {
                         if (error) { return reject(error); }
                         photoURL = result.secure_url; photoPublicId = result.public_id;

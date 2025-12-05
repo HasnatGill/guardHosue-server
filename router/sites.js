@@ -1,5 +1,6 @@
 const express = require("express")
 const Sites = require("../models/sites");
+const Users = require("../models/auth")
 // const Customers = require("../models/customers")
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
@@ -10,11 +11,13 @@ router.post("/add", verifyToken, async (req, res) => {
     try {
 
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const user = Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         let formData = req.body
 
-        const site = new Sites({ ...formData, id: getRandomId(), createdBy: uid })
+        const site = new Sites({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId })
         await site.save()
 
         res.status(201).json({ message: "Your site added has been successfully", isError: false, site })
@@ -25,49 +28,23 @@ router.post("/add", verifyToken, async (req, res) => {
     }
 })
 
-// router.get("/all", verifyToken, async (req, res) => {
-//     try {
-
-//         const { status = "", customerId } = req.query;
-
-//         const match = {};
-
-//         if (status) match.status = status;
-
-//         // if (customerId) match.customerId = customerId;
-
-//         const sites = await Sites.aggregate([
-//             { $match: match },
-//             {
-//                 $lookup: {
-//                     from: "customers",
-//                     localField: "customerId",
-//                     foreignField: "id",
-//                     as: "customer"
-//                 }
-//             },
-//             { $unwind: { path: "$customer", preserveNullAndEmptyArrays: true } },
-//             { $addFields: { customer: { $ifNull: ["$customer.name", "Unknown Customer"] } } },
-//         ]);
-//         res.status(200).json({ message: "Companies fetched", isError: false, sites });
-
-//     } catch (error) {
-//         console.error(error);
-//         res.status(500).json({ message: "Something went wrong while getting the sites", isError: true, error });
-//     }
-// });
 
 router.get("/all", verifyToken, async (req, res) => {
     try {
 
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const user = Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         const { status, customerId, name, longitude, latitude, perPage = 10, pageNo = 1 } = cleanObjectValues(req.query);
 
-        const match = {}
+        let match = {}
+        let companyMatch = {}
         if (status) match.status = status
         if (customerId) match.customerId = customerId
+        if (user.companyId) match.companyId = user.companyId
+        if (user.companyId) companyMatch.companyId = user.companyId
         if (name) match.name = { $regex: name, $options: "i" }
         if (longitude) match.longitude = { $regex: longitude, $options: "i" }
         if (latitude) match.latitude = { $regex: latitude, $options: "i" }
@@ -83,6 +60,7 @@ router.get("/all", verifyToken, async (req, res) => {
         ])
 
         const counts = await Sites.aggregate([
+            { $match: companyMatch },
             {
                 $group: {
                     _id: null,

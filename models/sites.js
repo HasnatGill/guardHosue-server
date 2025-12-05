@@ -4,6 +4,7 @@ const { Schema } = mongoose
 const schema = new Schema({
     id: { type: String, required: true, unique: true },
     customerId: { type: String, required: true, ref: "customers" },
+    companyId: { type: String, required: true, ref: "companies" },
     name: { type: String, required: true, trim: true },
     country: { type: Schema.Types.Mixed, required: true },
     province: { type: Schema.Types.Mixed, required: false, default: "{}" },
