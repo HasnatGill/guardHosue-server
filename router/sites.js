@@ -84,13 +84,16 @@ router.get("/all", verifyToken, async (req, res) => {
 router.get("/all-sites", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
 
         const { status = "" } = req.query;
         let match = {};
 
         if (status) { match.status = status; }
+        if (user.companyId) { match.companyId = user.companyId }
 
         const sites = await Sites.aggregate([
             { $match: match },

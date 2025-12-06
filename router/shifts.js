@@ -2,9 +2,8 @@ const express = require("express")
 const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
 const Users = require("../models/auth")
-// const Customers = require("../models/customers")
 const { verifyToken } = require("../middlewares/auth")
-const { getRandomId } = require("../config/global");
+const { getRandomId, cleanObjectValues } = require("../config/global");
 
 const router = express.Router()
 
@@ -27,67 +26,60 @@ router.post("/add", verifyToken, async (req, res) => {
     }
 })
 
-router.get("/all/:model", verifyToken, async (req, res) => {
+router.get("/all", verifyToken, async (req, res) => {
     try {
-        const { model } = req.params;
 
-        // -----------------------------------------
-        //  MODEL = SITES  (sites array return hogi)
-        // -----------------------------------------
-        if (model === "site") {
+        const { uid } = req;
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
+
+        const { customerId, model, startDate, endDate } = cleanObjectValues(req.query);
+
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(endDate) : null;
+
+        const shiftDateMatch = {};
+        if (start && end) { shiftDateMatch.date = { $gte: start, $lte: end }; }
+
+        let match = {};
+
+        if (model === "Sites") {
+
+            if (customerId) match.customerId = customerId
+            if (user.companyId) match.companyId = user.companyId
 
             const result = await Sites.aggregate([
-                {
-                    $lookup: {
-                        from: "shifts",
-                        localField: "id",
-                        foreignField: "siteId",
-                        as: "shifts"
-                    }
-                },
-                {
-                    $unwind: {
-                        path: "$shifts",
-                        preserveNullAndEmptyArrays: true
-                    }
-                },
-                {
-                    $lookup: {
-                        from: "users",
-                        localField: "shifts.guardId",
-                        foreignField: "uid",
-                        as: "guardInfo"
-                    }
-                },
-                {
-                    $unwind: {
-                        path: "$guardInfo",
-                        preserveNullAndEmptyArrays: true
-                    }
-                },
+                { $match: match },
+                { $lookup: { from: "shifts", localField: "id", foreignField: "siteId", as: "shifts" } },
+                { $unwind: { path: "$shifts", preserveNullAndEmptyArrays: true } },
+                { $lookup: { from: "users", localField: "shifts.guardId", foreignField: "uid", as: "guardInfo" } },
+                { $unwind: { path: "$guardInfo", preserveNullAndEmptyArrays: true } },
                 {
                     $group: {
                         _id: "$id",
                         name: { $first: "$name" },
                         shifts: {
-                            $push: {
-                                id: "$shifts.id",
-                                date: "$shifts.date",
-                                employeeName: "$guardInfo.fullName",
-                                start: "$shifts.start",
-                                end: "$shifts.end",
-                                status: "$shifts.status",
-                                liveStatus: "$shifts.liveStatus"
-                            }
+                            $push: { id: "$shifts.id", date: "$shifts.date", employeeName: "$guardInfo.fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" }
                         }
                     }
                 },
                 {
                     $project: {
-                        _id: 0,
-                        id: "$_id",
-                        name: 1,
-                        shifts: 1
+                        _id: 0, id: "$_id", name: 1,
+                        shifts: {
+                            $filter: {
+                                input: "$shifts",
+                                as: "s",
+                                cond: {
+                                    $and: [
+                                        { $ne: ["$$s.id", null] },
+                                        { $gte: ["$$s.date", start] },
+                                        { $lte: ["$$s.date", end] }
+                                    ]
+                                }
+                            }
+                        }
                     }
                 }
             ]);
@@ -95,66 +87,41 @@ router.get("/all/:model", verifyToken, async (req, res) => {
             return res.json({ model: "sites", data: result });
         }
 
-        // -----------------------------------------
-        //  MODEL = GUARD  (employees array return hogi)
-        // -----------------------------------------
-        if (model === "guard") {
+        if (model === "Guards") {
+
+            let match = {}
+
+            match.roles = { $in: ["guard"] }
+            if (user.companyId) match.companyId = user.companyId
 
             const result = await Users.aggregate([
-                {
-                    $match: { roles: { $in: ["guard"] } }
-                },
-                {
-                    $lookup: {
-                        from: "shifts",
-                        localField: "uid",
-                        foreignField: "guardId",
-                        as: "shifts"
-                    }
-                },
-                {
-                    $unwind: {
-                        path: "$shifts",
-                        preserveNullAndEmptyArrays: true
-                    }
-                },
-                {
-                    $lookup: {
-                        from: "sites",
-                        localField: "shifts.siteId",
-                        foreignField: "id",
-                        as: "siteInfo"
-                    }
-                },
-                {
-                    $unwind: {
-                        path: "$siteInfo",
-                        preserveNullAndEmptyArrays: true
-                    }
-                },
+                { $match: match },
+                { $lookup: { from: "shifts", localField: "uid", foreignField: "guardId", as: "shifts" } },
+                { $unwind: { path: "$shifts", preserveNullAndEmptyArrays: true } },
+                { $lookup: { from: "sites", localField: "shifts.siteId", foreignField: "id", as: "siteInfo" } },
+                { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
                 {
                     $group: {
-                        _id: "$uid",
-                        name: { $first: "$fullName" },
-                        shifts: {
-                            $push: {
-                                id: "$shifts.id",
-                                date: "$shifts.date",
-                                siteName: "$siteInfo.name",
-                                start: "$shifts.start",
-                                end: "$shifts.end",
-                                status: "$shifts.status",
-                                liveStatus: "$shifts.liveStatus"
-                            }
-                        }
+                        _id: "$uid", name: { $first: "$fullName" },
+                        shifts: { $push: { id: "$shifts.id", date: "$shifts.date", siteName: "$siteInfo.name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" } }
                     }
                 },
                 {
                     $project: {
-                        _id: 0,
-                        id: "$_id",
-                        name: 1,
-                        shifts: 1
+                        _id: 0, id: "$_id", name: 1,
+                        shifts: {
+                            $filter: {
+                                input: "$shifts",
+                                as: "s",
+                                cond: {
+                                    $and: [
+                                        { $ne: ["$$s.id", null] },
+                                        { $gte: ["$$s.date", start] },
+                                        { $lte: ["$$s.date", end] }
+                                    ]
+                                }
+                            }
+                        }
                     }
                 }
             ]);

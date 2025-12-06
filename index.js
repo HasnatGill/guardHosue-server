@@ -63,7 +63,7 @@ app.use("/customers", customers)
 app.use("/transactions", transactions)
 app.use("/sites-registered", sites)
 app.use("/users", users)
-app.use("shifts", shifts)
+app.use("/shifts", shifts)
 app.use("/schedules", schedules)
 
 app.use("/uploads/images", express.static("uploads"));

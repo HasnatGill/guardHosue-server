@@ -165,6 +165,34 @@ router.patch("/update/:id", verifyToken, upload.single("image"), async (req, res
     }
 })
 
+router.get("/all-guards", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+
+        const { status = "" } = req.query;
+
+        let match = {};
+
+        if (status) { match.status = status; }
+        if (user.companyId) { match.companyId = user.companyId }
+        match.roles = { $in: ["guard"] }
+        const guards = await Users.aggregate([
+            { $match: match },
+            { $project: { _id: 0, uid: 1, fullName: 1, } }
+        ]);
+
+        res.status(200).json({ message: "Guards fetched", isError: false, guards });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong while getting the Sites", isError: true, error });
+    }
+});
+
 router.get("/single-with-id/:id", verifyToken, async (req, res) => {
     try {
 
