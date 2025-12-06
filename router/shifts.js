@@ -36,19 +36,28 @@ router.get("/all", verifyToken, async (req, res) => {
 
         const { customerId, model, startDate, endDate } = cleanObjectValues(req.query);
 
-        const start = startDate ? new Date(startDate) : null;
-        const end = endDate ? new Date(endDate) : null;
+        let start = null;
+        let end = null;
 
-        const shiftDateMatch = {};
-        if (start && end) { shiftDateMatch.date = { $gte: start, $lte: end }; }
+        if (startDate) {
+            const s = new Date(startDate);
+            s.setUTCHours(0, 0, 0, 0);
+            start = s.toISOString();
+        }
 
-        let match = {};
+        if (endDate) {
+            const e = new Date(endDate);
+            e.setUTCHours(23, 59, 59, 999);
+            end = e.toISOString();
+        }
+
 
         if (model === "Sites") {
 
+            let match = {};
             if (customerId) match.customerId = customerId
             if (user.companyId) match.companyId = user.companyId
-
+            match.status = "active"
             const result = await Sites.aggregate([
                 { $match: match },
                 { $lookup: { from: "shifts", localField: "id", foreignField: "siteId", as: "shifts" } },
@@ -60,7 +69,7 @@ router.get("/all", verifyToken, async (req, res) => {
                         _id: "$id",
                         name: { $first: "$name" },
                         shifts: {
-                            $push: { id: "$shifts.id", date: "$shifts.date", employeeName: "$guardInfo.fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" }
+                            $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", employeeName: "$guardInfo.fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" }
                         }
                     }
                 },
@@ -69,13 +78,12 @@ router.get("/all", verifyToken, async (req, res) => {
                         _id: 0, id: "$_id", name: 1,
                         shifts: {
                             $filter: {
-                                input: "$shifts",
-                                as: "s",
+                                input: "$shifts", as: "s",
                                 cond: {
                                     $and: [
                                         { $ne: ["$$s.id", null] },
-                                        { $gte: ["$$s.date", start] },
-                                        { $lte: ["$$s.date", end] }
+                                        start ? { $gte: ["$$s.date", { $dateFromString: { dateString: start } }] } : true,
+                                        end ? { $lte: ["$$s.date", { $dateFromString: { dateString: end } }] } : true
                                     ]
                                 }
                             }
@@ -90,9 +98,9 @@ router.get("/all", verifyToken, async (req, res) => {
         if (model === "Guards") {
 
             let match = {}
-
             match.roles = { $in: ["guard"] }
             if (user.companyId) match.companyId = user.companyId
+            match.status = "active"
 
             const result = await Users.aggregate([
                 { $match: match },
@@ -103,7 +111,7 @@ router.get("/all", verifyToken, async (req, res) => {
                 {
                     $group: {
                         _id: "$uid", name: { $first: "$fullName" },
-                        shifts: { $push: { id: "$shifts.id", date: "$shifts.date", siteName: "$siteInfo.name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" } }
+                        shifts: { $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", siteName: "$siteInfo.name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" } }
                     }
                 },
                 {
@@ -111,13 +119,12 @@ router.get("/all", verifyToken, async (req, res) => {
                         _id: 0, id: "$_id", name: 1,
                         shifts: {
                             $filter: {
-                                input: "$shifts",
-                                as: "s",
+                                input: "$shifts", as: "s",
                                 cond: {
                                     $and: [
                                         { $ne: ["$$s.id", null] },
-                                        { $gte: ["$$s.date", start] },
-                                        { $lte: ["$$s.date", end] }
+                                        start ? { $gte: ["$$s.date", { $dateFromString: { dateString: start } }] } : true,
+                                        end ? { $lte: ["$$s.date", { $dateFromString: { dateString: end } }] } : true
                                     ]
                                 }
                             }
@@ -137,6 +144,87 @@ router.get("/all", verifyToken, async (req, res) => {
     }
 });
 
+router.get("/my-shifts", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+
+        const user = await Users.findOne({ uid });
+
+        if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
+
+        const { startDate, endDate } = cleanObjectValues(req.query);
+
+        const dateFilter = startDate && endDate ? { date: { $gte: new Date(startDate), $lte: new Date(`${endDate}T23:59:59.999Z`) } } : {};
+
+        const shifts = await Shifts.aggregate([
+            { $match: { guardId: uid, ...dateFilter } },
+
+            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
+            { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 0,
+                    id: 1,
+                    date: 1,
+                    start: 1,
+                    end: 1,
+                    status: 1,
+                    liveStatus: 1,
+                    totalHours: 1,
+                    siteId: 1,
+                    siteName: "$siteInfo.name",
+                    siteAddress: "$siteInfo.address"
+                }
+            }
+        ]);
+
+        return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
+
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: "Server Error", isError: true, error });
+    }
+})
+
+router.patch("/update/:id", verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { uid } = req;
+
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const existingShift = await Shifts.findOne({ id });
+        if (!existingShift) return res.status(404).json({ message: "Shift not found.", isError: true });
+
+        const updatedData = { ...req.body };
+
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id },
+            { $set: updatedData },
+            { new: true }
+        );
+
+        res.status(200).json({ message: "Shift updated successfully", isError: false, shift: updatedShift });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong while updating the shift", isError: true, error });
+    }
+});
+
+router.delete("/single/:id", verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Find the shift
+        const shift = await Shifts.findOneAndDelete({ id });
+        if (!shift) return res.status(404).json({ message: "Shift not found", isError: true });
+
+        res.status(200).json({ message: "Shift deleted successfully", id });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong", isError: true });
+    }
+});
 
 
 module.exports = router
