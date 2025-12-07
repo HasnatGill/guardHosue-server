@@ -2,8 +2,14 @@ const express = require("express")
 const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
 const Users = require("../models/auth")
+const dayjs = require("dayjs");
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const router = express.Router()
 
@@ -161,21 +167,7 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
 
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
             { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
-            {
-                $project: {
-                    _id: 0,
-                    id: 1,
-                    date: 1,
-                    start: 1,
-                    end: 1,
-                    status: 1,
-                    liveStatus: 1,
-                    totalHours: 1,
-                    siteId: 1,
-                    siteName: "$siteInfo.name",
-                    siteAddress: "$siteInfo.address"
-                }
-            }
+            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, liveStatus: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address" } }
         ]);
 
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
@@ -211,11 +203,58 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     }
 });
 
+
+router.get("/live-operations", verifyToken, async (req, res) => {
+    try {
+
+        const { uid } = req
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
+
+        const currentTimeUTC = dayjs.utc();
+        const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
+        const endOfDayUTC = currentTimeUTC.endOf("day").toDate();
+
+        const missedThreshold = currentTimeUTC.subtract(5, 'minutes').toDate();
+
+        await Shifts.updateMany(
+            { liveStatus: 'awaiting', start: { $lt: missedThreshold, $gte: startOfDayUTC } },
+            { $set: { liveStatus: 'missed' } }
+        );
+
+
+        const pipeline = [
+            {
+                $match: {
+                    start: { $gte: startOfDayUTC, $lte: endOfDayUTC }
+                }
+            },
+            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteDetails" } },
+            { $unwind: "$siteDetails" },
+            { $lookup: { from: "customers", localField: "siteDetails.customerId", foreignField: "id", as: "customerDetails" } },
+            { $unwind: "$customerDetails" },
+            { $match: { "customerDetails.companyId": user.companyId } },
+            { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
+            { $unwind: "$guardDetails" },
+            { $project: { _id: 0, shiftId: "$id", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$liveStatus", startTime: "$start", endTime: "$end", } },
+            { $sort: { startTime: 1 } }
+        ];
+
+        const shifts = await Shifts.aggregate(pipeline);
+
+        return res.status(200).json({ message: `Live shifts fetched for.`, shifts });
+
+    } catch (error) {
+        console.error("Error fetching live operations:", error);
+        res.status(500).json({ message: "Server error during live operations fetch." });
+    }
+});
+
 router.delete("/single/:id", verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Find the shift
         const shift = await Shifts.findOneAndDelete({ id });
         if (!shift) return res.status(404).json({ message: "Shift not found", isError: true });
 
