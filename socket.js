@@ -1,7 +1,7 @@
 let io;
 
 function initIO(server, corsOrigins) {
-    const { Server } = require("socket.io");
+    const { Server } = require("socket.io"); 
     io = new Server(server, {
         cors: {
             origin: corsOrigins,
@@ -12,6 +12,14 @@ function initIO(server, corsOrigins) {
 
     io.on("connection", (socket) => {
         console.log("⚡ Dashboard Connected:", socket.id);
+        
+        socket.on("join_guard_room", (uid) => {
+            if (uid) {
+                socket.join(uid); 
+                console.log(`Guard ${uid} joined room ${uid}`);
+            }
+        });
+
         socket.on("disconnect", () => console.log("❌ Disconnected:", socket.id));
     });
 

@@ -13,9 +13,36 @@ dayjs.extend(timezone);
 
 const router = express.Router()
 
+// router.post("/add", verifyToken, async (req, res) => {
+//     try {
+//         const { uid } = req;
+//         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+//         let formData = req.body
+
+//         const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid })
+//         await shift.save()
+
+//         const populatedShift = await Shifts.findOne({ id: shift.id }).populate({ path: 'siteId', model: 'sites', select: '-createdBy -__v' });
+
+
+//         const guardId = populatedShift.guardId;
+
+//         if (guardId && req.io) {
+//             req.io.to(guardId).emit('new_shift_added', { shift: populatedShift, message: `New shift added successfully`, });
+//             console.log(`Populated Shift data sent to Guard Room: ${guardId}`);
+//         }
+
+//         res.status(201).json({ message: "Your shift added has been successfully", isError: false, shift: populatedShift })
+
+//     } catch (error) {
+//         console.error(error)
+//         res.status(500).json({ message: "Something went wrong while adding the shift", isError: true, error })
+//     }
+// })
+
 router.post("/add", verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
@@ -23,6 +50,17 @@ router.post("/add", verifyToken, async (req, res) => {
 
         const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid })
         await shift.save()
+
+        let shiftObject = shift.toObject();
+        const siteInfo = await Sites.findOne({ id: shiftObject.siteId }).select('-createdBy -__v -_id');
+        if (siteInfo) { shiftObject.siteId = siteInfo.toObject(); }
+
+        const guardId = shiftObject.guardId;
+
+        if (guardId && req.io) {
+            req.io.to(guardId).emit('new_shift_added', { shift: shiftObject, message: `Your new shift add at ${shiftObject?.site?.name}`, });
+            console.log(`Shift data sent to Guard Room: ${guardId}`);
+        }
 
         res.status(201).json({ message: "Your shift added has been successfully", isError: false, shift })
 
