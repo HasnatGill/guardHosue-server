@@ -165,7 +165,13 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
         console.log('end', end)
 
         const shifts = await Shifts.aggregate([
-            { $match: { guardId: uid, date: { $gte: start, $lte: end } } },
+            {
+                $match: {
+                    guardId: uid,
+                    // 💡 FIX 2: Date field par filter karen
+                    // date: { $gte: startFilterDate, $lte: endFilterDate }
+                }
+            },
 
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
             { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
