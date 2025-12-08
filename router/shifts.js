@@ -156,9 +156,13 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
         if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         const { startDate, endDate } = cleanObjectValues(req.query);
-// console.log('', )
+        // console.log('', )
         let start = JSON.parse(startDate)
         let end = JSON.parse(endDate)
+
+        console.log('uid', uid)
+        console.log('start', start)
+        console.log('end', end)
 
         const shifts = await Shifts.aggregate([
             { $match: { guardId: uid, date: { $gte: start, $lte: end } } },
@@ -168,6 +172,7 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
             { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, liveStatus: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address" } }
         ]);
 
+        console.log('shifts', shifts)
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
 
     } catch (error) {
