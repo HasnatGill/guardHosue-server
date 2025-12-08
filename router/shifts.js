@@ -155,21 +155,24 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
 
         if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        const { startDate, endDate } = cleanObjectValues(req.query);
-        // console.log('', )
-        let start = JSON.parse(startDate)
-        let end = JSON.parse(endDate)
+        let { startDate, endDate } = cleanObjectValues(req.query);
 
-        console.log('uid', uid)
-        console.log('start', start)
-        console.log('end', end)
+        startDate = JSON.parse(startDate)
+        endDate = JSON.parse(endDate)
+
+        const start = dayjs(startDate);
+        const end = dayjs(endDate);
+
+        if (!start.isValid() || !end.isValid()) { return res.status(400).json({ message: "Invalid date format.", isError: true }); }
+
+        const startFilter = start.startOf("day").toDate();
+        const endFilter = end.endOf("day").toDate();
 
         const shifts = await Shifts.aggregate([
             {
                 $match: {
                     guardId: uid,
-                    // 💡 FIX 2: Date field par filter karen
-                    // date: { $gte: startFilterDate, $lte: endFilterDate }
+                    date: { $gte: startFilter, $lte: endFilter }
                 }
             },
 
