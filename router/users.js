@@ -302,10 +302,23 @@ router.get('/monthly-shifts/:guardId', verifyToken, async (req, res) => {
         const startDate = targetDate.startOf('month').toDate();
         const endDate = targetDate.endOf('month').toDate();
         const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } })
-            .populate({ path: 'siteId', model: "sites", localField: 'siteId', foreignField: 'id', select: 'id name address city' })
-            .select('id totalHours date start end breakTime status liveStatus')
+            .populate({
+                path: 'siteId',
+                model: "sites",
+                localField: 'siteId',
+                foreignField: 'id',
+                populate: {
+                    path: 'customerId',
+                    model: 'customers',
+                    localField: 'customerId',
+                    foreignField: 'id',
+                    select: 'name id'
+                },
+                select: 'id name address city customerId' 
+            })
+            .select('id totalHours date start end breakTime status checkIn liveStatus')
             .lean();
-            
+
         res.status(200).json({ success: true, shifts });
 
     } catch (error) {
