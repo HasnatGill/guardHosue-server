@@ -461,11 +461,15 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
             { new: true }
         );
 
+        const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
+
+        const shiftFormat = { ...updatedShift.toObject(), site }
+
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
-        req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Check In.` });
+        req.io.emit('shift_check_in', { shift: shiftFormat, type: 'check_in', message: `Shift Check In.` });
 
-        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: updatedShift });
+        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftFormat });
 
     } catch (error) {
         console.error("Check-In Error:", error);
