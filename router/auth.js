@@ -20,7 +20,7 @@ router.post("/register", async (req, res) => {
         const { firstName, lastName, fullName, email, password } = req.body
 
         const user = await Users.findOne({ email })
-        if (user) { return res.status(401).json({ message: "Email is already in use", isError: true }) }
+        if (user) { return res.status(401).json({ message: "This email is already in use", isError: true }) }
 
         const hashedPassword = await bcrypt.hash(password, 10)
         const userId = getRandomId()

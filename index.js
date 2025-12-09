@@ -6,7 +6,6 @@ const morgan = require("morgan")
 const http = require("http")
 const bodyParser = require("body-parser")
 const { connectDB } = require("./config/db")
-const path = require("path");
 
 const auth = require("./router/auth")
 const companies = require("./router/companies")
@@ -17,17 +16,17 @@ const shifts = require("./router/shifts")
 const users = require("./router/users")
 const schedules = require("./router/schedule")
 
-const { APP_URL, APP_URL_1, APP_URL_2, PORT = 8000 } = process.env
+const { APP_URL, APP_URL_1, APP_URL_2, PORT = 8000, HOST = "0.0.0.0" } = process.env
 
 connectDB();
 
 const app = express()
 
 app.use(cors({
-    origin: [APP_URL, APP_URL_1, APP_URL_2],
+    origin: "*",
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
+    // credentials: true,
 }));
 
 app.use(morgan("dev"))
@@ -37,7 +36,7 @@ const server = http.createServer(app)
 
 // ✅ socket.js ka use karo
 const { initIO } = require("./socket")
-const io = initIO(server, [APP_URL, APP_URL_1])
+const io = initIO(server, ["*"])
 
 app.use((req, res, next) => {
     req.io = io;
@@ -66,10 +65,6 @@ app.use("/users", users)
 app.use("/shifts", shifts)
 app.use("/schedules", schedules)
 
-app.use("/uploads/images", express.static("uploads"));
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-
 server.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Server + Socket.IO running on PORT ${PORT}`)
+    console.log(`🚀 Server + Socket.IO running on PORT ${PORT} : ${HOST}`)
 })

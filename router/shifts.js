@@ -250,7 +250,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
             { $match: { "customerDetails.companyId": user.companyId } },
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
             { $unwind: "$guardDetails" },
-            { $project: { _id: 0, shiftId: "$id", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$liveStatus", startTime: "$start", endTime: "$end", } },
+            { $project: { _id: 0, shiftId: "$id", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$liveStatus", startTime: "$start", endTime: "$end", guardId: "$guardId" } },
             { $sort: { startTime: 1 } }
         ];
 
@@ -339,6 +339,7 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
                     end: '$end',
                     date: '$date',
                     status: '$status',
+                    reason: "$reason",
                     liveStatus: '$liveStatus',
                     totalHours: '$totalHours',
                     siteId: '$siteId',
@@ -383,6 +384,12 @@ router.patch("/updated-status/:id", verifyToken, async (req, res) => {
             { new: true }
         );
 
+        const guardId = updatedShift.guardId;
+
+        if (guardId && req.io) {
+            req.io.to(guardId).emit('update_request', { shift: updatedShift, message: `Your Request Update`, });
+        }
+
         res.status(200).json({ message: "Shift updated successfully", isError: false, shift: updatedShift });
     } catch (error) {
         console.error(error);
@@ -405,6 +412,8 @@ router.patch("/request-approval/:id", verifyToken, async (req, res) => {
             { $set: { status: "request", reason: "Approval Shift" } },
             { new: true }
         );
+
+        req.io.emit('shift_request', { shift: updatedShift, type: 'check_in', message: `Shift Check In.` });
 
         res.status(200).json({ message: "Approval Request sent successfully", isError: false, shift: updatedShift });
     } catch (error) {
@@ -443,68 +452,45 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
     try {
         const { id: shiftId } = req.params;
         const { status = "active", liveStatus = "checkIn" } = req.body;
-        const io = getIO(); // Socket instance len
 
-        // 1. Check-In Time Set Karen
         const currentCheckInTime = dayjs.utc(true)
 
-        // 2. Shift Update Karen
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            {
-                $set: {
-                    status: status,
-                    liveStatus: liveStatus,
-                    checkIn: currentCheckInTime
-                }
-            },
-            { new: true } // Updated document return karen
+            { $set: { status: status, liveStatus: liveStatus, checkIn: currentCheckInTime } },
+            { new: true }
         );
 
-        if (!updatedShift) {
-            return res.status(404).json({ message: "Shift not found.", isError: true });
-        }
+        if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
-        // --- 3. Socket Event Emit Karne Ke Liye Data Populate Karen ---
+        req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Check In.` });
 
-        // Custom string IDs ki wajah se manual lookup
-        let shiftObject = updatedShift.toObject();
+        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftObject });
 
-        // Site Info Fetch
-        const siteInfo = await Sites.findOne({ id: shiftObject.siteId }).select('-createdBy -__v -_id');
-        if (siteInfo) {
-            shiftObject.siteId = siteInfo.toObject();
-            shiftObject.name = siteInfo.name; // Site name for dashboard table
-        }
+    } catch (error) {
+        console.error("Check-In Error:", error);
+        res.status(500).json({ message: "Something went wrong during check-in", isError: true, error });
+    }
+});
 
-        // Guard Info Fetch
-        const guardInfo = await Users.findOne({ id: shiftObject.guardId }).select('fullName email -_id'); // Adjust fields as needed
-        if (guardInfo) {
-            shiftObject.guardName = guardInfo.fullName; // Guard name for dashboard table
-            shiftObject.guardEmail = guardInfo.email;
-        }
+router.patch("/check-out/:id", verifyToken, async (req, res) => {
+    try {
+        const { id: shiftId } = req.params;
+        const { status = "inactive", liveStatus = "checkOut" } = req.body;
 
-        // --- 4. Socket Emit ---
+        const currentCheckInTime = dayjs.utc(true)
 
-        // Poori company/admin/relevant parties ko update bhejen
-        // Aapko yeh decide karna hoga ke update kisko bhejna hai (e.g., Admin Panel Room)
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id: shiftId },
+            { $set: { status: status, liveStatus: liveStatus, CheckOut: currentCheckInTime } },
+            { new: true }
+        );
 
-        // Example: 'shift_updated' event ko admin room mein bhejen
-        io.emit('shift_updated', {
-            shift: shiftObject,
-            type: 'check_in',
-            message: `Guard ${shiftObject.guardName || 'N/A'} checked in at ${shiftObject.name || 'Site'}.`
-        });
+        if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
-        // Agar guard room mein bhi update bhejna hai:
-        // io.to(shiftObject.guardId).emit('shift_updated', { ... });
+        req.io.emit('shift_check_out', { shift: updatedShift, type: 'check_Out', message: `Shift Check Out.` });
 
-
-        res.status(200).json({
-            message: "Check-in successful and shift updated.",
-            isError: false,
-            shift: shiftObject
-        });
+        res.status(200).json({ message: "Check-Out successful and shift updated.", isError: false, shift: shiftObject });
 
     } catch (error) {
         console.error("Check-In Error:", error);

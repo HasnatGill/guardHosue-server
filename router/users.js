@@ -1,6 +1,7 @@
 const express = require("express")
 const multer = require("multer");
 const Users = require("../models/auth")
+const Shifts = require("../models/shifts")
 const { verifyToken } = require("../middlewares/auth")
 const { cloudinary, deleteFileFromCloudinary } = require("../config/cloudinary")
 const { getRandomId, cleanObjectValues, } = require("../config/global")
@@ -289,5 +290,125 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
     }
 });
 
+router.get('/:guardId/shifts/month', async (req, res) => {
+    try {
+        const { guardId } = req.params;
+        const { month, year } = req.query; // month is 0-indexed from frontend (0=Jan, 11=Dec)
+
+        if (!month || !year) {
+            return res.status(400).json({ success: false, message: "Month and year are required query parameters." });
+        }
+
+        // Month ko +1 karke dayjs mein use karein (1=Jan, 12=Dec)
+        const targetMonth = parseInt(month) + 1;
+
+        // Start aur End date UTC mein calculate karein
+        const startDate = dayjs.utc(`${year}-${targetMonth}-01`).startOf('month');
+        const endDate = dayjs.utc(`${year}-${targetMonth}-01`).endOf('month');
+
+        // Database query aur populate (Aggregation se simple aur readable hai)
+        const shifts = await Shifts.find({
+            guardId: guardId,
+            date: {
+                $gte: startDate.toDate(),
+                $lte: endDate.toDate()
+            }
+        })
+            .populate({
+                path: 'siteId',
+                model: Sites,
+                select: 'name city'
+            });
+
+        // Data format karein - Frontend ko UTC dates bhejein, formatting frontend par hogi
+        const formattedShifts = shifts.map(shift => {
+            const shiftObject = shift.toObject();
+            return {
+                id: shiftObject.id,
+                date: dayjs.utc(shiftObject.date).toISOString(), // UTC date
+                start: dayjs.utc(shiftObject.start).toISOString(), // UTC start time
+                end: dayjs.utc(shiftObject.end).toISOString(),   // UTC end time
+                totalHours: shiftObject.totalHours,
+                siteName: shiftObject.siteId?.name || 'N/A',
+                siteCity: shiftObject.siteId?.city?.label || shiftObject.siteId?.city || 'N/A',
+            };
+        });
+
+        res.status(200).json({ success: true, shifts: formattedShifts });
+
+    } catch (error) {
+        console.error("Error fetching calendar shifts:", error);
+        res.status(500).json({ success: false, message: "Server error" });
+    }
+});
+
+router.get('/:guardId/shifts/week', async (req, res) => {
+    try {
+        const { guardId } = req.params;
+        // weekStart aur weekEnd ISO string format mein aayenge (UTC)
+        const { weekStart, weekEnd } = req.query;
+
+        if (!weekStart || !weekEnd) {
+            return res.status(400).json({ success: false, message: "weekStart and weekEnd are required query parameters." });
+        }
+
+        // Dates ko JavaScript Date objects mein parse karein
+        const startDate = dayjs.utc(weekStart).toDate();
+        const endDate = dayjs.utc(weekEnd).toDate();
+
+        // Database query
+        const shifts = await Shifts.find({
+            guardId: guardId,
+            date: {
+                $gte: startDate,
+                $lte: endDate
+            }
+        })
+            .populate({
+                path: 'siteId',
+                model: Sites,
+                select: 'name city'
+            });
+
+        // Data format karein
+        const formattedShifts = shifts.map(shift => {
+            const shiftObject = shift.toObject();
+            return {
+                id: shiftObject.id,
+                date: dayjs.utc(shiftObject.date).toISOString(),
+                start: dayjs.utc(shiftObject.start).toISOString(),
+                end: dayjs.utc(shiftObject.end).toISOString(),
+                totalHours: shiftObject.totalHours,
+                siteName: shiftObject.siteId?.name || 'N/A',
+                siteCity: shiftObject.siteId?.city?.label || shiftObject.siteId?.city || 'N/A',
+            };
+        });
+
+
+        res.status(200).json({ success: true, shifts: formattedShifts });
+
+    } catch (error) {
+        console.error("Error fetching weekly shifts:", error);
+        res.status(500).json({ success: false, message: "Server error" });
+    }
+});
+
+router.get('/:guardId', verifyToken, async (req, res) => {
+    try {
+        const { guardId } = req.params;
+
+        const guard = await Users.findOne({ uid: guardId }).select('-password -verifyToken -otp -otpExpires -roles -createdBy');
+
+        if (!guard) {
+            return res.status(404).json({ success: false, message: "Guard not found" });
+        }
+
+        res.status(200).json({ success: true, guard });
+
+    } catch (error) {
+        console.error("Error fetching guard profile:", error);
+        res.status(500).json({ success: false, message: "Server error" });
+    }
+});
 
 module.exports = router
