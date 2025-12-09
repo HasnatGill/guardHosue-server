@@ -292,33 +292,21 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
     }
 });
 
-router.get('/:guardId/shifts/month', async (req, res) => {
+router.get('/monthly-shifts/:guardId', verifyToken, async (req, res) => {
     try {
         const { guardId } = req.params;
-        const { month, year } = req.query; // month is 0-indexed from frontend (0=Jan, 11=Dec)
+        const { month, year } = req.query;
 
-        if (!month || !year) {
-            return res.status(400).json({ success: false, message: "Month and year are required query parameters." });
-        }
-
-        // Month ko +1 karke dayjs mein use karein (1=Jan, 12=Dec)
         const targetMonth = parseInt(month) + 1;
 
-        // Start aur End date UTC mein calculate karein
         const startDate = dayjs.utc(`${year}-${targetMonth}-01`).startOf('month');
         const endDate = dayjs.utc(`${year}-${targetMonth}-01`).endOf('month');
 
-        // Database query aur populate (Aggregation se simple aur readable hai)
-        const shifts = await Shifts.find({
-            guardId: guardId,
-            date: {
-                $gte: startDate.toDate(),
-                $lte: endDate.toDate()
-            }
-        })
+        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate.toDate(), $lte: endDate.toDate() } })
             .populate({
                 path: 'siteId',
-                model: Sites,
+                model: "sites",
+                localField: 'siteId', foreignField: 'id',
                 select: 'name city'
             });
 
@@ -353,9 +341,7 @@ router.get('/current-week-shifts/:guardId', verifyToken, async (req, res) => {
         const startDate = dayjs(weekStart)
         const endDate = dayjs(weekEnd)
 
-        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } }).populate({ path: 'siteId', model: 'sites', select: 'name address' })
-            .select('id guardId siteId breakTime date start end status liveStatus totalHours')
-            .lean();
+        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } }).populate({ path: 'siteId', model: 'sites', localField: 'siteId', foreignField: 'id', select: 'id name address city' }).select('id guardId siteId breakTime date start end status liveStatus totalHours').lean();
 
         res.status(200).json({ success: true, shifts });
 
