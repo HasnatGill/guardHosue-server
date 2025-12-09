@@ -465,7 +465,7 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Check In.` });
 
-        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftObject });
+        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: updatedShift });
 
     } catch (error) {
         console.error("Check-In Error:", error);
