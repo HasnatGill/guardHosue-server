@@ -297,38 +297,20 @@ router.get('/monthly-shifts/:guardId', verifyToken, async (req, res) => {
         const { guardId } = req.params;
         const { month, year } = req.query;
 
-        const targetMonth = parseInt(month) + 1;
+        const targetDate = dayjs.utc().year(year).month(month);
 
-        const startDate = dayjs.utc(`${year}-${targetMonth}-01`).startOf('month');
-        const endDate = dayjs.utc(`${year}-${targetMonth}-01`).endOf('month');
-
-        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate.toDate(), $lte: endDate.toDate() } })
-            .populate({
-                path: 'siteId',
-                model: "sites",
-                localField: 'siteId', foreignField: 'id',
-                select: 'name city'
-            });
-
-        // Data format karein - Frontend ko UTC dates bhejein, formatting frontend par hogi
-        const formattedShifts = shifts.map(shift => {
-            const shiftObject = shift.toObject();
-            return {
-                id: shiftObject.id,
-                date: dayjs.utc(shiftObject.date).toISOString(), // UTC date
-                start: dayjs.utc(shiftObject.start).toISOString(), // UTC start time
-                end: dayjs.utc(shiftObject.end).toISOString(),   // UTC end time
-                totalHours: shiftObject.totalHours,
-                siteName: shiftObject.siteId?.name || 'N/A',
-                siteCity: shiftObject.siteId?.city?.label || shiftObject.siteId?.city || 'N/A',
-            };
-        });
-
-        res.status(200).json({ success: true, shifts: formattedShifts });
+        const startDate = targetDate.startOf('month').toDate();
+        const endDate = targetDate.endOf('month').toDate();
+        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } })
+            .populate({ path: 'siteId', model: "sites", localField: 'siteId', foreignField: 'id', select: 'id name address city' })
+            .select('id totalHours date start end breakTime status liveStatus')
+            .lean();
+            
+        res.status(200).json({ success: true, shifts });
 
     } catch (error) {
         console.error("Error fetching calendar shifts:", error);
-        res.status(500).json({ success: false, message: "Server error" });
+        res.status(500).json({ success: false, message: "Server error", error: error.message });
     }
 });
 
