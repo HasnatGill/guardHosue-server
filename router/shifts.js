@@ -453,7 +453,7 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
         const { id: shiftId } = req.params;
         const { status = "active", liveStatus = "checkIn" } = req.body;
 
-        const currentCheckInTime = dayjs.utc(true)
+        const currentCheckInTime = new Date()
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },

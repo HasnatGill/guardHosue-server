@@ -344,54 +344,24 @@ router.get('/:guardId/shifts/month', async (req, res) => {
     }
 });
 
-router.get('/:guardId/shifts/week', async (req, res) => {
+router.get('/current-week-shifts/:guardId', verifyToken, async (req, res) => {
     try {
         const { guardId } = req.params;
-        // weekStart aur weekEnd ISO string format mein aayenge (UTC)
-        const { weekStart, weekEnd } = req.query;
 
-        if (!weekStart || !weekEnd) {
-            return res.status(400).json({ success: false, message: "weekStart and weekEnd are required query parameters." });
-        }
+        const { weekStart, weekEnd } = cleanObjectValues(req.query);
 
-        // Dates ko JavaScript Date objects mein parse karein
-        const startDate = dayjs.utc(weekStart).toDate();
-        const endDate = dayjs.utc(weekEnd).toDate();
+        const startDate = dayjs(weekStart)
+        const endDate = dayjs(weekEnd)
 
-        // Database query
-        const shifts = await Shifts.find({
-            guardId: guardId,
-            date: {
-                $gte: startDate,
-                $lte: endDate
-            }
-        })
-            .populate({
-                path: 'siteId',
-                model: Sites,
-                select: 'name city'
-            });
+        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } }).populate({ path: 'siteId', model: 'sites', select: 'name address' })
+            .select('id guardId siteId breakTime date start end status liveStatus totalHours')
+            .lean();
 
-        // Data format karein
-        const formattedShifts = shifts.map(shift => {
-            const shiftObject = shift.toObject();
-            return {
-                id: shiftObject.id,
-                date: dayjs.utc(shiftObject.date).toISOString(),
-                start: dayjs.utc(shiftObject.start).toISOString(),
-                end: dayjs.utc(shiftObject.end).toISOString(),
-                totalHours: shiftObject.totalHours,
-                siteName: shiftObject.siteId?.name || 'N/A',
-                siteCity: shiftObject.siteId?.city?.label || shiftObject.siteId?.city || 'N/A',
-            };
-        });
-
-
-        res.status(200).json({ success: true, shifts: formattedShifts });
+        res.status(200).json({ success: true, shifts });
 
     } catch (error) {
         console.error("Error fetching weekly shifts:", error);
-        res.status(500).json({ success: false, message: "Server error" });
+        res.status(500).json({ success: false, message: "Server error", error: error.message });
     }
 });
 
