@@ -264,7 +264,6 @@ router.get("/live-operations", verifyToken, async (req, res) => {
             {
                 $match: {
                     start: { $gte: startOfDayUTC, $lte: endOfDayUTC },
-                    end: { $gte: startOfDayUTC, $lte: endOfDayUTC }
                 }
             },
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteDetails" } },
