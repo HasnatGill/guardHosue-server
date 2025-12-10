@@ -152,6 +152,24 @@ router.get("/all", verifyToken, async (req, res) => {
     }
 });
 
+router.get("/single-with-id/:id", verifyToken, async (req, res) => {
+    try {
+
+        const { uid } = req;
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const { id } = req.params;
+
+        const shift = await Shifts.findOne({ id });
+
+        res.status(200).json({ shift });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong. Internal server error.", isError: true, error });
+    }
+});
+
 router.get("/my-shifts", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
@@ -297,6 +315,13 @@ const getShiftCounts = async (date) => {
 
 router.get("/all-with-status", verifyToken, async (req, res) => {
     try {
+
+
+        const { uid } = req
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
+
         const { status, siteId, guardName, email, date, perPage, pageNo } = cleanObjectValues(req.query);
 
         const page = parseInt(pageNo) || 1;
