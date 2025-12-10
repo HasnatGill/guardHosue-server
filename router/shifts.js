@@ -224,8 +224,8 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
-        const currentTimeUTC = dayjs();
-        console.log('currentTimeUTC', currentTimeUTC)
+        const currentTimeUTC = dayjs.utc().startOf("day");
+        
         const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
         const endOfDayUTC = currentTimeUTC.endOf("day").toDate();
 
