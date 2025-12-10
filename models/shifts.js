@@ -12,7 +12,7 @@ const schema = new Schema({
     totalHours: { type: Number, required: true },
     reason: { type: String, default: "" },
     checkIn: { type: Date, default: null },
-    CheckOut: { type: Date, default: null },
+    checkOut: { type: Date, default: null },
     locations: {
         type: [{
             longitude: { type: String },
