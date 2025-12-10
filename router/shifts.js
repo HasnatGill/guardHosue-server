@@ -225,7 +225,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
         const currentTimeUTC = dayjs.utc().startOf("day");
-        
+
         const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
         const endOfDayUTC = currentTimeUTC.endOf("day").toDate();
 
@@ -251,7 +251,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
             { $match: { "customerDetails.companyId": user.companyId } },
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
             { $unwind: "$guardDetails" },
-            { $project: { _id: 0, shiftId: "$id", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$liveStatus", startTime: "$start", endTime: "$end", guardId: "$guardId" } },
+            { $project: { _id: 0, id: "$id", liveStatus: "$liveStatus", checkOut: "$checkOut", checkIn: "$checkIn", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$status", startTime: "$start", endTime: "$end", guardId: "$guardId" } },
             { $sort: { startTime: 1 } }
         ];
 
@@ -452,13 +452,11 @@ router.patch("/send-request/:id", verifyToken, async (req, res) => {
 router.patch("/check-in/:id", verifyToken, async (req, res) => {
     try {
         const { id: shiftId } = req.params;
-        const { status = "active", liveStatus = "checkIn" } = req.body;
-
-        const currentCheckInTime = new Date()
+        const { status = "active", liveStatus = "checkIn", checkInTime } = req.body;
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: status, liveStatus: liveStatus, checkIn: currentCheckInTime } },
+            { $set: { status: status, liveStatus: liveStatus, checkIn: checkInTime } },
             { new: true }
         );
 
