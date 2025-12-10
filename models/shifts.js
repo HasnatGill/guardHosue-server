@@ -13,6 +13,14 @@ const schema = new Schema({
     reason: { type: String, default: "" },
     checkIn: { type: Date, default: null },
     CheckOut: { type: Date, default: null },
+    locations: {
+        type: [{
+            longitude: { type: String },
+            latitude: { type: String },
+            time: { type: Date, default: null }
+        }],
+        default: []
+    },
     liveStatus: { type: String, default: "awaiting" },
     status: { type: String, default: "pending" },
     createdBy: { type: String, required: true },

@@ -454,7 +454,7 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
         const { id: shiftId } = req.params;
 
         const { checkInTime } = cleanObjectValues(req.query);
-        
+
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
             { $set: { status: "active", liveStatus: "checkIn", checkIn: checkInTime } },
@@ -480,13 +480,12 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 router.patch("/check-out/:id", verifyToken, async (req, res) => {
     try {
         const { id: shiftId } = req.params;
-        const { status = "inactive", liveStatus = "checkOut" } = req.body;
+        const { status = "inactive", liveStatus = "checkOut", checkOutTime } = cleanObjectValues(req.query);
 
-        const currentCheckInTime = dayjs.utc(true)
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: status, liveStatus: liveStatus, CheckOut: currentCheckInTime } },
+            { $set: { status: status, liveStatus: liveStatus, CheckOut: checkOutTime } },
             { new: true }
         );
 
@@ -494,11 +493,43 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
 
         req.io.emit('shift_check_out', { shift: updatedShift, type: 'check_Out', message: `Shift Check Out.` });
 
-        res.status(200).json({ message: "Check-Out successful and shift updated.", isError: false, shift: shiftObject });
+        res.status(200).json({ message: "Check-Out successful and shift updated.", isError: false, shift: updatedShift });
 
     } catch (error) {
         console.error("Check-In Error:", error);
         res.status(500).json({ message: "Something went wrong during check-in", isError: true, error });
+    }
+});
+
+router.patch("/drop-pin/:id", verifyToken, async (req, res) => {
+
+    const { id } = req.params;
+    const { latitude, longitude, time } = req.body;
+
+    if (!latitude || !longitude || !time) { return res.status(400).json({ success: false, message: "Latitude and Longitude or Time are required." }); }
+
+    try {
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id },
+            {
+                $push: {
+                    locations: {
+                        longitude: longitude,
+                        latitude: latitude,
+                        time: time,
+                    }
+                }
+            },
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedShift) { return res.status(404).json({ success: false, message: "Shift not found with this ID." }); }
+
+        return res.status(200).json({ success: true, message: "Location successfully updated.", shift: updatedShift });
+
+    } catch (error) {
+        console.error("Error updating location:", error);
+        return res.status(500).json({ success: false, message: "Server error occurred while updating location.", error });
     }
 });
 
