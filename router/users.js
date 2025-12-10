@@ -316,7 +316,7 @@ router.get('/monthly-shifts/:guardId', verifyToken, async (req, res) => {
                 },
                 select: 'id name address city customerId' 
             })
-            .select('id totalHours date start end breakTime status checkIn liveStatus')
+            .select('id totalHours date start end breakTime status checkIn checkOut liveStatus')
             .lean();
 
         res.status(200).json({ success: true, shifts });

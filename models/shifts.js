@@ -21,6 +21,7 @@ const schema = new Schema({
         }],
         default: []
     },
+    attachments: { type: Schema.Types.Mixed, default: [] },
     liveStatus: { type: String, default: "awaiting" },
     status: { type: String, default: "pending" },
     createdBy: { type: String, required: true },

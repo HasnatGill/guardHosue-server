@@ -5,8 +5,13 @@ const Users = require("../models/auth")
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
+
+const storage = multer.memoryStorage()
+const upload = multer({ storage })
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -530,6 +535,49 @@ router.patch("/drop-pin/:id", verifyToken, async (req, res) => {
     } catch (error) {
         console.error("Error updating location:", error);
         return res.status(500).json({ success: false, message: "Server error occurred while updating location.", error });
+    }
+});
+
+// // Function to upload a file to Cloudinary
+const uploadToCloudinary = (file) => {
+    return new Promise((resolve, reject) => {
+        const resourceType = file.mimetype.startsWith("video/") ? "video" : "image";
+
+        const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: "incidents", resource_type: resourceType },  // Set resource type dynamically
+            (error, result) => {
+                if (error) return reject(error);
+                resolve({
+                    name: file.originalname,
+                    url: result.secure_url,
+                    type: file.mimetype,
+                    publicId: result.public_id
+                });
+            }
+        );
+        uploadStream.end(file.buffer);
+    });
+};
+
+// Route to upload attachments for a donation
+router.post("/upload-attachments/:id", upload.array("files"), async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!req.files?.length) { return res.status(400).json({ message: "No files uploaded", isError: true }); }
+
+        // Upload all files concurrently
+        const uploadedFiles = await Promise.all(req.files.map(uploadToCloudinary));
+
+        // Update only the attachments field
+        const updatedTransaction = await Shifts.findOneAndUpdate({ id }, { $push: { attachments: { $each: uploadedFiles } } }, { new: true });
+
+        if (!updatedTransaction) { return res.status(404).json({ message: "Transaction not found", isError: true }); }
+
+        res.status(200).json({ message: "Attachments uploaded successfully", attachments: uploadedFiles, isError: false });
+
+    } catch (error) {
+        console.error("Error uploading attachments:", error);
+        res.status(500).json({ message: "Something went wrong", isError: true, error: error.message });
     }
 });
 
