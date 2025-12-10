@@ -453,7 +453,8 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
     try {
         const { id: shiftId } = req.params;
         const { status = "active", liveStatus = "checkIn", checkInTime } = req.body;
-
+        console.log('checkInTime', checkInTime)
+        // if()
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
             { $set: { status: status, liveStatus: liveStatus, checkIn: checkInTime } },
