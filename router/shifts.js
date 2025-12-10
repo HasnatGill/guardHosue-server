@@ -251,7 +251,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
             { $match: { "customerDetails.companyId": user.companyId } },
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
             { $unwind: "$guardDetails" },
-            { $project: { _id: 0, id: "$id", liveStatus: "$liveStatus", checkOut: "$checkOut", checkIn: "$checkIn", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$status", startTime: "$start", endTime: "$end", guardId: "$guardId" } },
+            { $project: { _id: 0, id: "$id", liveStatus: "$liveStatus", checkIn: "$checkIn", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$status", startTime: "$start", endTime: "$end", checkOut: "$checkOut", guardId: "$guardId" } },
             { $sort: { startTime: 1 } }
         ];
 
@@ -485,7 +485,7 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: status, liveStatus: liveStatus, CheckOut: checkOutTime } },
+            { $set: { status: status, liveStatus: liveStatus, checkOut: checkOutTime } },
             { new: true }
         );
 
