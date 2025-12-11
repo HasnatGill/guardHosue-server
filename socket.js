@@ -5,7 +5,7 @@ function initIO(server, corsOrigins) {
     io = new Server(server, {
         cors: {
             origin: corsOrigins,
-            methods: ["GET", "POST"],
+            methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
             credentials: true
         }
     });

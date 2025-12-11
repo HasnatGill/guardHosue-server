@@ -23,10 +23,10 @@ connectDB();
 const app = express()
 
 app.use(cors({
-    origin: "*",
+    origin: [APP_URL, APP_URL_1, APP_URL_2],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    // credentials: true,
+    credentials: true,
 }));
 
 app.use(morgan("dev"))
@@ -36,7 +36,7 @@ const server = http.createServer(app)
 
 // ✅ socket.js ka use karo
 const { initIO } = require("./socket")
-const io = initIO(server, ["*"])
+const io = initIO(server, [APP_URL, APP_URL_1, APP_URL_2,])
 
 app.use((req, res, next) => {
     req.io = io;
