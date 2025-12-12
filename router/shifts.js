@@ -461,12 +461,13 @@ router.patch("/request-approval/:id", verifyToken, async (req, res) => {
             { $set: { status: "request", reason: "Approval Shift" } },
             { new: true }
         );
-        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName uid');
+        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
         const siteData = await Sites.findOne({ id: updatedShift.siteId }, 'name city address');
 
         const shiftToSend = {
             ...updatedShift.toObject(),
             guardName: guardUser ? guardUser.fullName : "",
+            guardEmail: guardUser ? guardUser.email : "",
             siteName: siteData ? siteData.name : "",
             siteAddress: siteData ? siteData.address : "",
             siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
@@ -499,6 +500,20 @@ router.patch("/send-request/:id", verifyToken, async (req, res) => {
             { new: true }
         );
 
+        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
+        const siteData = await Sites.findOne({ id: updatedShift.siteId }, 'name city address');
+
+        const shiftToSend = {
+            ...updatedShift.toObject(),
+            guardName: guardUser ? guardUser.fullName : "",
+            guardEmail: guardUser ? guardUser.email : "",
+            siteName: siteData ? siteData.name : "",
+            siteAddress: siteData ? siteData.address : "",
+            siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
+        };
+
+        req.io.emit('new_request', { shift: shiftToSend, message: `New Request.` });
+
         res.status(200).json({ message: "Request sent successfully", isError: false, shift: updatedShift });
     } catch (error) {
         console.error(error);
@@ -520,12 +535,13 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
         );
 
         const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
-
-        const shiftFormat = { ...updatedShift.toObject(), site }
+        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
+        const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser }
 
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
-        req.io.emit('shift_check_in', { shift: shiftFormat, type: 'check_in', message: `Shift Check In.` });
+        req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Chock In. by ${guardUser.fullName}` });
+        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_in', { shift: shiftToSend, message: `Shift clock-in`, }); }
 
         res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftFormat });
 
@@ -547,11 +563,16 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
             { new: true }
         );
 
+        const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
+        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
+        const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser }
+
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
         req.io.emit('shift_check_out', { shift: updatedShift, type: 'check_Out', message: `Shift Check Out.` });
+        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftToSend, message: `Shift clock-Out`, }); }
 
-        res.status(200).json({ message: "Check-Out successful and shift updated.", isError: false, shift: updatedShift });
+        res.status(200).json({ message: "Check-Out successful and shift updated.", isError: false, shift: shiftFormat });
 
     } catch (error) {
         console.error("Check-In Error:", error);
