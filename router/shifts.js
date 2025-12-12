@@ -604,6 +604,7 @@ router.patch("/drop-pin/:id", verifyToken, async (req, res) => {
 
         if (!updatedShift) { return res.status(404).json({ success: false, message: "Shift not found with this ID." }); }
 
+        req.io.emit('shift_drop_pin', { shift: updatedShift, type: 'drop_pin', message: `New Drop Pin.` });
         return res.status(200).json({ success: true, message: "Location successfully updated.", shift: updatedShift });
 
     } catch (error) {
@@ -639,15 +640,14 @@ router.post("/upload-attachments/:id", upload.array("files"), async (req, res) =
         const { id } = req.params;
         if (!req.files?.length) { return res.status(400).json({ message: "No files uploaded", isError: true }); }
 
-        // Upload all files concurrently
         const uploadedFiles = await Promise.all(req.files.map(uploadToCloudinary));
 
-        // Update only the attachments field
-        const updatedTransaction = await Shifts.findOneAndUpdate({ id }, { $push: { attachments: { $each: uploadedFiles } } }, { new: true });
+        const updatedShifts = await Shifts.findOneAndUpdate({ id }, { $push: { attachments: { $each: uploadedFiles } } }, { new: true });
 
-        if (!updatedTransaction) { return res.status(404).json({ message: "Transaction not found", isError: true }); }
+        if (!updatedShifts) { return res.status(404).json({ message: "Shift not found", isError: true }); }
 
-        res.status(200).json({ message: "Attachments uploaded successfully", attachments: uploadedFiles, isError: false });
+        req.io.emit('shift_drop_pin', { shift: updatedShifts, type: 'drop_pin', message: `Incident.` });
+        res.status(200).json({ message: "Attachments uploaded successfully", shift: updatedShifts, isError: false });
 
     } catch (error) {
         console.error("Error uploading attachments:", error);
