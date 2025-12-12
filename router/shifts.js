@@ -37,8 +37,7 @@ router.post("/add", verifyToken, async (req, res) => {
         const guardId = shiftObject.guardId;
 
         if (guardId && req.io) {
-            req.io.to(guardId).emit('new_shift_added', { shift: shiftObject, message: `Your new shift add at ${shiftObject?.site?.name}`, });
-            console.log(`Shift data sent to Guard Room: ${guardId}`);
+            req.io.to(guardId).emit('new_shift_added', { shift: shiftObject, message: `Your new shift add at ${shiftObject?.siteId?.name}`, });
         }
 
         res.status(201).json({ message: "Your shift added has been successfully", isError: false, shift })
@@ -278,14 +277,12 @@ router.get("/live-operations", verifyToken, async (req, res) => {
 
         const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
         const endOfDayUTC = currentTimeUTC.endOf("day").toDate();
-
-        const missedThreshold = currentTimeUTC.subtract(5, 'minutes').toDate();
+        const now = currentTimeUTC.toDate();
 
         await Shifts.updateMany(
-            { liveStatus: 'awaiting', start: { $lt: missedThreshold, $gte: startOfDayUTC } },
-            { $set: { liveStatus: 'missed' } }
+            { liveStatus: 'awaiting', end: { $lt: now } },
+            { $set: { liveStatus: 'missed', status: "inactive" } }
         );
-
 
         const pipeline = [
             {
@@ -435,6 +432,7 @@ router.patch("/updated-status/:id", verifyToken, async (req, res) => {
             ...updatedShift.toObject(),
             guardName: guardUser ? guardUser.fullName : "",
             siteName: siteData ? siteData.name : "",
+            guardEmail: guardUser ? guardUser.email : "",
             siteAddress: siteData ? siteData.address : "",
             siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
         };
@@ -474,7 +472,7 @@ router.patch("/request-approval/:id", verifyToken, async (req, res) => {
             siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
         };
 
-        req.io.emit('new_request', { shift: shiftToSend, type: 'check_in', message: `Shift Check In.` });
+        req.io.emit('new_request', { shift: shiftToSend, message: `Request for approval shift.` });
 
         res.status(200).json({ message: "Approval Request sent successfully", isError: false, shift: updatedShift });
     } catch (error) {
