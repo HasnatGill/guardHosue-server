@@ -541,7 +541,7 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
         req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Chock In. by ${guardUser.fullName}` });
-        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_in', { shift: shiftToSend, message: `Shift clock-in`, }); }
+        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_in', { shift: shiftFormat, message: `Shift clock-in`, }); }
 
         res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftFormat });
 
@@ -570,7 +570,7 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
         req.io.emit('shift_check_out', { shift: updatedShift, type: 'check_Out', message: `Shift Check Out.` });
-        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftToSend, message: `Shift clock-Out`, }); }
+        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftFormat, message: `Shift clock-Out`, }); }
 
         res.status(200).json({ message: "Check-Out successful and shift updated.", isError: false, shift: shiftFormat });
 
