@@ -16,8 +16,8 @@ const schema = new Schema({
     checkOut: { type: Date, default: null },
     locations: {
         type: [{
-            longitude: { type: String },
-            latitude: { type: String },
+            longitude: { type: Number },
+            latitude: { type: Number },
             time: { type: Date, default: null }
         }],
         default: []

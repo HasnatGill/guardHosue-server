@@ -297,7 +297,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
             { $match: { "customerDetails.companyId": user.companyId } },
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
             { $unwind: "$guardDetails" },
-            { $project: { _id: 0, id: "$id", liveStatus: "$liveStatus", checkIn: "$checkIn", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$status", startTime: "$start", endTime: "$end", checkOut: "$checkOut", guardId: "$guardId" } },
+            { $project: { _id: 0, id: "$id", liveStatus: "$liveStatus", checkIn: "$checkIn", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$status", startTime: "$start", endTime: "$end", locations: "$locations", checkOut: "$checkOut", guardId: "$guardId" } },
             { $sort: { startTime: 1 } }
         ];
 
@@ -536,15 +536,14 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
         const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
-        const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser }
+        const shiftFormat = { ...updatedShift.toObject(), siteId: site, guard: guardUser }
 
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 
         req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Chock In. by ${guardUser.fullName}` });
         if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_in', { shift: shiftFormat, message: `Shift clock-in`, }); }
 
-        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: updatedShift });
-
+        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftFormat });
     } catch (error) {
         console.error("Check-In Error:", error);
         res.status(500).json({ message: "Something went wrong during check-in", isError: true, error });
