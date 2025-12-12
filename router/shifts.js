@@ -251,7 +251,7 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
         if (req.io) {
             if (newGuardId && newGuardId !== oldGuardId) {
                 req.io.to(oldGuardId).emit('remove_shift_from_admin', { shift: shiftToSend, message: `Your shift has been removed from ${shiftToSend.siteName}` });
-                req.io.to(newGuardId).emit('new_shift_from_admin', { shift: shiftToSend, message: `You have been assigned a new shift at ${shiftToSend.siteName}` });
+                req.io.to(newGuardId).emit('new_shift_added', { shift: shiftToSend, message: `You have been assigned a new shift at ${shiftToSend.siteName}` });
             }
             else if (updatedShift.guardId) {
                 req.io.to(updatedShift.guardId).emit('shift_update_from_admin', { shift: shiftToSend, message: shiftMessage });
@@ -318,6 +318,7 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
         const shift = await Shifts.findOneAndDelete({ id });
         if (!shift) return res.status(404).json({ message: "Shift not found", isError: true });
 
+        if (shift.guardId && req.io) { req.io.to(shift.guardId).emit('remove_shift_from_admin', { shift, message: `Shift remove`, }); }
         res.status(200).json({ message: "Shift deleted successfully", id });
     } catch (error) {
         console.error(error);
@@ -338,7 +339,6 @@ const getShiftCounts = async (date, companyId) => {
 
 router.get("/all-with-status", verifyToken, async (req, res) => {
     try {
-
 
         const { uid } = req
 
@@ -543,7 +543,7 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
         req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Chock In. by ${guardUser.fullName}` });
         if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_in', { shift: shiftFormat, message: `Shift clock-in`, }); }
 
-        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftFormat });
+        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: updatedShift });
 
     } catch (error) {
         console.error("Check-In Error:", error);
