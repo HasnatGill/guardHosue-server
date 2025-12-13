@@ -27,12 +27,13 @@ router.post("/add", verifyToken, async (req, res) => {
 
         let formData = req.body
 
-        const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId })
+        const site = await Sites.findOne({ id: formData.siteId }).select('-createdBy -__v -_id')
+
+        const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId })
         await shift.save()
 
         let shiftObject = shift.toObject();
-        const siteInfo = await Sites.findOne({ id: shiftObject.siteId }).select('-createdBy -__v -_id');
-        if (siteInfo) { shiftObject.siteId = siteInfo.toObject(); }
+        if (site) { shiftObject.siteId = site.toObject(); }
 
         const guardId = shiftObject.guardId;
 
@@ -273,21 +274,22 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
-        const currentTimeUTC = dayjs.utc().startOf("day");
+        const { timeZone = "UTC" } = cleanObjectValues(req.query)
 
-        const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
-        const endOfDayUTC = currentTimeUTC.endOf("day").toDate();
-        const now = currentTimeUTC.toDate();
+        const currentTimeUTC = dayjs().tz(timeZone).utc(true);
+        const now = currentTimeUTC.toDate()
+        const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
+        const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
 
         await Shifts.updateMany(
             { liveStatus: 'awaiting', end: { $lt: now } },
-            { $set: { liveStatus: 'missed', status: "inactive" } }
+            { $set: { liveStatus: 'missed', status: 'inactive' } }
         );
 
         const pipeline = [
             {
                 $match: {
-                    start: { $gte: startOfDayUTC, $lte: endOfDayUTC },
+                    end: { $gte: startOfDayUTC, $lte: endOfDayUTC },
                 }
             },
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteDetails" } },
@@ -327,7 +329,7 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
 });
 
 const getShiftCounts = async (date, companyId) => {
-    const counts = await Shifts.aggregate([{ $match: { start: { $gte: date }, companyId: companyId } }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
+    const counts = await Shifts.aggregate([{ $match: { end: { $gte: date }, companyId: companyId } }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
     const result = { active: 0, pending: 0, request: 0 };
     counts.forEach(item => {
         if (item._id === 'active') result.active = item.count;
@@ -345,7 +347,7 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
-        const { status, siteId, guardName, email, date, perPage, pageNo } = cleanObjectValues(req.query);
+        const { status, siteId, guardName, email, date, perPage, pageNo, timeZone } = cleanObjectValues(req.query);
 
         const page = parseInt(pageNo) || 1;
         const limit = parseInt(perPage) || 10;
@@ -356,19 +358,15 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
         if (status) { matchQuery.status = status; }
         matchQuery.companyId = user.companyId
 
-        const currentTimeUTC = dayjs.utc();
+        const currentTimeUTC = dayjs().tz(timeZone).utc(true);
         const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
 
-        matchQuery.start = { $gte: startOfDayUTC };
-
+        matchQuery.end = { $gte: startOfDayUTC };
         if (date) {
-            const selectedDate = new Date(date);
-            const nextDate = new Date(selectedDate);
-            nextDate.setDate(selectedDate.getDate() + 1);
-
-            matchQuery.date = { $gte: selectedDate, $lt: nextDate };
-            delete matchQuery.start;
-            matchQuery.date = { $gte: selectedDate, $lt: nextDate };
+            const selectedDateUTC = dayjs.tz(date, timeZone).startOf('day').utc();
+            const nextDateUTC = selectedDateUTC.add(1, 'day');
+            matchQuery.date = { $gte: selectedDateUTC.toDate(), $lt: nextDateUTC.toDate(), };
+            delete matchQuery.end;
         }
 
         let pipeline = [

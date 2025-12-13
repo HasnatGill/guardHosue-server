@@ -5,6 +5,7 @@ const schema = new Schema({
     id: { type: String, required: true, unique: true },
     siteId: { type: String, required: true, ref: "sites" },
     guardId: { type: String, required: true, ref: "users" },
+    customerId: { type: String, required: true, ref: "customers" },
     companyId: { type: String, required: true, ref: "companies" },
     start: { type: Date, required: true },
     end: { type: Date, required: true },
