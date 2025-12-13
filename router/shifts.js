@@ -281,6 +281,10 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
         const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
 
+        console.log('currentTimeUTC=>', currentTimeUTC)
+        console.log('startOfDayUTC=>', startOfDayUTC)
+        console.log('endOfDayUTC=>', endOfDayUTC)
+
         await Shifts.updateMany(
             { liveStatus: 'awaiting', end: { $lt: now } },
             { $set: { liveStatus: 'missed', status: 'inactive' } }
@@ -289,7 +293,10 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const pipeline = [
             {
                 $match: {
-                    end: { $gte: startOfDayUTC, $lte: endOfDayUTC },
+                    $or: [
+                        { start: { $gte: startOfDayUTC, $lte: endOfDayUTC } },
+                        { end: { $gte: startOfDayUTC, $lte: endOfDayUTC } }
+                    ]
                 }
             },
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteDetails" } },
@@ -300,7 +307,6 @@ router.get("/live-operations", verifyToken, async (req, res) => {
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
             { $unwind: "$guardDetails" },
             { $project: { _id: 0, id: "$id", liveStatus: "$liveStatus", checkIn: "$checkIn", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$status", startTime: "$start", endTime: "$end", locations: "$locations", checkOut: "$checkOut", guardId: "$guardId" } },
-            { $sort: { startTime: 1 } }
         ];
 
         const shifts = await Shifts.aggregate(pipeline);

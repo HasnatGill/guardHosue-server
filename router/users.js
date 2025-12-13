@@ -71,11 +71,18 @@ router.get("/all", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid }).lean()
         if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        let { status = "", perPage = 10, pageNo = 1, name, phone, email } = cleanObjectValues(req.query);
+        let { status = "", perPage = 10, pageNo = 1, name, phone, email, timeZone } = cleanObjectValues(req.query);
 
         perPage = Number(perPage);
         pageNo = Number(pageNo);
         const skip = (pageNo - 1) * perPage;
+
+        const now = dayjs().tz(timeZone).utc(true);
+
+        await Users.updateMany(
+            { companyId: user.companyId, roles: { $in: ["guard"] }, expireTo: { $lt: now }, },
+            { $set: { status: "inactive" } }
+        );
 
         // Build match filter
         const match = { roles: { $in: ["guard"] } };
@@ -176,9 +183,16 @@ router.get("/all-guards", verifyToken, async (req, res) => {
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
 
-        const { status = "" } = req.query;
+        const { status = "", timeZone = "UTC" } = cleanObjectValues(req.query);
 
         let match = {};
+
+        const now = dayjs().tz(timeZone).utc(true);
+
+        await Users.updateMany(
+            { companyId: user.companyId, roles: { $in: ["guard"] }, expireTo: { $lt: now }, },
+            { $set: { status: "inactive" } }
+        );
 
         if (status) { match.status = status; }
         if (user.companyId) { match.companyId = user.companyId }
@@ -271,7 +285,7 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
                     { folder: 'GuardHouse/users' }, // Optional: specify a folder in Cloudinary
                     (error, result) => {
                         if (error) { return reject(error); }
-                        photoURL = result.secure_url; photoPublicId = result.public_id;
+                        photoURL = result.secure_url; photosPublicId = result.public_id;
                         resolve();
                     }
                 )
@@ -281,7 +295,7 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
 
 
         // ---- Prepare Updated Fields
-        const updatedData = { ...req.body, photoURL, photoPublicId, updatedAt: new Date() };
+        const updatedData = { ...req.body, photoURL, photosPublicId, updatedAt: new Date() };
 
         const updatedUser = await Users.findOneAndUpdate({ uid }, updatedData, { new: true });
 
@@ -314,7 +328,7 @@ router.get('/monthly-shifts/:guardId', verifyToken, async (req, res) => {
                     foreignField: 'id',
                     select: 'name id'
                 },
-                select: 'id name address city customerId' 
+                select: 'id name address city customerId'
             })
             .select('id totalHours date start end breakTime status checkIn checkOut liveStatus')
             .lean();

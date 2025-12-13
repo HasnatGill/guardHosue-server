@@ -143,7 +143,7 @@ router.get("/all", verifyToken, async (req, res) => {
 router.get("/finance-hourly", verifyToken, async (req, res) => {
     try {
 
-        const { tab = "customers_sites", customerId, siteId, guardId, startDate, endDate, } = req.query;
+        const { tab, customerId, siteId, guardId, startDate, endDate, } = req.query;
         const match = { liveStatus: "checkOut", status: "inactive", };
 
         if (customerId) match.customerId = customerId;
