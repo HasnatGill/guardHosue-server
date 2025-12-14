@@ -13,7 +13,7 @@ const transporter = nodemailer.createTransport({
 
 async function sendMail(to, subjectText, bodHtml) {
     return transporter.sendMail({
-        from: "Guard House", to, subject: subjectText,
+        from: "Security Matrixai", to, subject: subjectText,
         html: bodHtml
     });
 }

@@ -54,7 +54,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
                          <p>Please click the link below to set your password:</p>
                          <a href="${verifyUrl}" style="color: blue; text-decoration: underline;">Set Password</a>`
 
-        await sendMail(email, "Set admin profile password for Guard House", bodyHtml);
+        await sendMail(email, "Set admin profile password for Security Matrixai", bodyHtml);
 
         res.status(201).json({ message: "Guard added successfully, Verification email sent.", guard: newUser });
 

@@ -34,7 +34,7 @@ router.post("/add", verifyToken, async (req, res) => {
                  <p>Please click the link below to set your password:</p>
                  <a href="${verifyUrl}" style="color: blue; text-decoration: underline;">Set Password</a>`
 
-        await sendMail(formData.email, "Set admin profile password for Guard House", bodyHtml);
+        await sendMail(formData.email, "Set admin profile password for Security Matrixai", bodyHtml);
 
         res.status(201).json({ message: "Company & Client Admin added successfully. Verification email sent.", isError: false, company });
 
