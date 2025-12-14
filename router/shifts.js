@@ -664,29 +664,47 @@ router.post("/upload-attachments/:id", upload.array("files"), async (req, res) =
     }
 });
 
-router.get("/incidents", async (req, res) => {
+router.get("/incidents", verifyToken, async (req, res) => {
     try {
-        const { startDate, endDate, timeZone } = req.query;
+
+        const { uid } = req
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
+
+
+        const { startDate, endDate, timeZone } = cleanObjectValues(req.query);
 
         const currentTimeUTC = dayjs().tz(timeZone).utc(true);
-        const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
-        const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
 
-        const matchDate = { $or: [{ start: { $gte: startOfDayUTC, $lte: endOfDayUTC } }, { end: { $gte: startOfDayUTC, $lte: endOfDayUTC } }] };
-        if (startDate && endDate) { matchDate.$or = [{ start: { $gte: dayjs(startDate), $lte: dayjs(endDate) } }, { end: { $gte: dayjs(startDate), $lte: dayjs(endDate) } }]; }
+        let start = currentTimeUTC.startOf("day").toDate();
+        let end = currentTimeUTC.endOf("day").toDate();
 
+        if (startDate && endDate) {
+            start = dayjs(startDate).startOf("day").toDate();
+            end = dayjs(endDate).endOf("day").toDate();
+        }
         const data = await Shifts.aggregate([
-            { $match: { attachments: { $exists: true, $not: { $size: 0 } }, ...matchDate } },
+            {
+                $match: {
+                    companyId: user.companyId,
+                    attachments: { $exists: true, $not: { $size: 0 } },
+                    $or: [
+                        { start: { $gte: start, $lte: end } },
+                        { end: { $gte: start, $lte: end } }
+                    ]
+                }
+            },
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
             { $unwind: "$site" },
             { $lookup: { from: "customers", localField: "customerId", foreignField: "id", as: "customer" } },
             { $unwind: "$customer" },
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guard" } },
             { $unwind: "$guard" },
-            { $project: { customer: "$customer.name", name: "$site.name", fullName: "$guard.fullName", address: "$site.address", date: { $dateToString: { format: "%d-%m", date: "$date" } }, attachments: 1 } }
+            { $project: { customer: "$customer.name", name: "$site.name", fullName: "$guard.fullName", address: "$site.address", date: "$date", attachments: 1 } }
         ]);
 
-        res.status(200).json({ data, total: data.length });
+        res.status(200).json({ incidents: data, total: data.length });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Something went wrong" });
