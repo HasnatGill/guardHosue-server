@@ -1,6 +1,7 @@
 const express = require("express")
 const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
+const Customers = require("../models/customers")
 const Users = require("../models/auth")
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
@@ -649,7 +650,8 @@ router.post("/upload-attachments/:id", upload.array("files"), async (req, res) =
 
         const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
         const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
-        const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser }
+        const customer = await Customers.findOne({ id: site.customerId })
+        const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser, customer }
 
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found", isError: true }); }
 
@@ -661,6 +663,36 @@ router.post("/upload-attachments/:id", upload.array("files"), async (req, res) =
         res.status(500).json({ message: "Something went wrong", isError: true, error: error.message });
     }
 });
+
+router.get("/incidents", async (req, res) => {
+    try {
+        const { startDate, endDate, timeZone } = req.query;
+
+        const currentTimeUTC = dayjs().tz(timeZone).utc(true);
+        const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
+        const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
+
+        const matchDate = { $or: [{ start: { $gte: startOfDayUTC, $lte: endOfDayUTC } }, { end: { $gte: startOfDayUTC, $lte: endOfDayUTC } }] };
+        if (startDate && endDate) { matchDate.$or = [{ start: { $gte: dayjs(startDate), $lte: dayjs(endDate) } }, { end: { $gte: dayjs(startDate), $lte: dayjs(endDate) } }]; }
+
+        const data = await Shifts.aggregate([
+            { $match: { attachments: { $exists: true, $not: { $size: 0 } }, ...matchDate } },
+            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
+            { $unwind: "$site" },
+            { $lookup: { from: "customers", localField: "customerId", foreignField: "id", as: "customer" } },
+            { $unwind: "$customer" },
+            { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guard" } },
+            { $unwind: "$guard" },
+            { $project: { customer: "$customer.name", name: "$site.name", fullName: "$guard.fullName", address: "$site.address", date: { $dateToString: { format: "%d-%m", date: "$date" } }, attachments: 1 } }
+        ]);
+
+        res.status(200).json({ data, total: data.length });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong" });
+    }
+});
+
 
 
 module.exports = router
