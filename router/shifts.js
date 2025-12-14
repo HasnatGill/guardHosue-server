@@ -645,12 +645,16 @@ router.post("/upload-attachments/:id", upload.array("files"), async (req, res) =
 
         const uploadedFiles = await Promise.all(req.files.map(uploadToCloudinary));
 
-        const updatedShifts = await Shifts.findOneAndUpdate({ id }, { $push: { attachments: { $each: uploadedFiles } } }, { new: true });
+        const updatedShift = await Shifts.findOneAndUpdate({ id }, { $push: { attachments: { $each: uploadedFiles } } }, { new: true });
 
-        if (!updatedShifts) { return res.status(404).json({ message: "Shift not found", isError: true }); }
+        const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
+        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
+        const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser }
 
-        req.io.emit('shift_drop_pin', { shift: updatedShifts, type: 'drop_pin', message: `Incident.` });
-        res.status(200).json({ message: "Attachments uploaded successfully", shift: updatedShifts, isError: false });
+        if (!updatedShift) { return res.status(404).json({ message: "Shift not found", isError: true }); }
+
+        req.io.emit('shift_incident', { shift: shiftFormat, type: 'incident', message: `Incident at ${shiftFormat.site.name}.` });
+        res.status(200).json({ message: "Incidents uploaded successfully", shift: shiftFormat, isError: false });
 
     } catch (error) {
         console.error("Error uploading attachments:", error);
