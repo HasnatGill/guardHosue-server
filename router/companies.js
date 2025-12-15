@@ -9,15 +9,17 @@ const sendMail = require("../utils/sendMail");
 
 const router = express.Router()
 
-const { APP_URL } = process.env
+const { APP_URL_1 } = process.env
 
 router.post("/add", verifyToken, async (req, res) => {
     try {
 
         const { uid } = req;
+        const formData = req.body;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const formData = req.body;
+        const existCompany = await Companies.findOne({ email })
+        if (existCompany) return res.status(401).json({ message: "This email is already in use", isError: true })
 
         const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid });
         await company.save();
@@ -29,7 +31,7 @@ router.post("/add", verifyToken, async (req, res) => {
 
         await newUser.save();
 
-        const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${formData.email}`;
+        const verifyUrl = `${APP_URL_1}/auth/set-password?token=${token}&email=${formData.email}`;
         const bodyHtml = `<p>Hello Admin,</p>
                  <p>Please click the link below to set your password:</p>
                  <a href="${verifyUrl}" style="color: blue; text-decoration: underline;">Set Password</a>`
@@ -52,7 +54,7 @@ router.get("/all", verifyToken, async (req, res) => {
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, paymentStatus } = req.query;
-        
+
         perPage = Number(perPage);
         pageNo = Number(pageNo);
         const skip = (pageNo - 1) * perPage;

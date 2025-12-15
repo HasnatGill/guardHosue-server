@@ -529,7 +529,16 @@ router.patch("/send-request/:id", verifyToken, async (req, res) => {
 
 router.patch("/check-in/:id", verifyToken, async (req, res) => {
     try {
+
+        const { uid } = req;
         const { id: shiftId } = req.params;
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
+
+        const alreadyActiveShift = await Shifts.findOne({ guardId: uid, status: "active", liveStatus: "checkIn" });
+
+        if (alreadyActiveShift) { return res.status(400).json({ message: "You are already in a shift.", isError: true }); }
 
         const { checkInTime } = cleanObjectValues(req.query);
 

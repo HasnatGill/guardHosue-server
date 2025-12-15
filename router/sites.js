@@ -11,11 +11,10 @@ router.post("/add", verifyToken, async (req, res) => {
     try {
 
         const { uid } = req;
+        let formData = req.body
 
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
-
-        let formData = req.body
 
         const site = new Sites({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId })
         await site.save()

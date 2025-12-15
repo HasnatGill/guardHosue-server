@@ -25,7 +25,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         let { firstName, lastName, fullName, email, phone, gender, perHour, expireFrom, expireTo, companyId } = req.body;
 
         const existUser = await Users.findOne({ email })
-        if (existUser) return res.status(401).json({ message: "This is Email already used.", isError: true })
+        if (existUser) return res.status(401).json({ message: "This email is already in use", isError: true })
 
         let photoURL = "", photoPublicId = "";
         if (req.file) {

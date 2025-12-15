@@ -7,7 +7,7 @@ const contactSchema = new mongoose.Schema({
     firstName: { type: String, trim: true },
     lastName: { type: String, trim: true },
     phone: { type: String, trim: true },
-    email: { type: String, trim: true },
+    email: { type: String, trim: true, unique: true },
     position: { type: String, trim: true },
     note: { type: String, trim: true },
 }, { _id: false });

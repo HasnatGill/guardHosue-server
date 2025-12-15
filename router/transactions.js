@@ -3,6 +3,7 @@ const router = express.Router();
 const { verifyToken } = require("../middlewares/auth");
 const Transactions = require("../models/Transactions");
 const Shift = require("../models/shifts");
+const Users = require("../models/auth");
 
 
 const customersSitesPipeline = (match) => [
@@ -143,12 +144,17 @@ router.get("/all", verifyToken, async (req, res) => {
 router.get("/finance-hourly", verifyToken, async (req, res) => {
     try {
 
+        const { uid } = req;
+        const user = await Users.findOne({ uid })
+        if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
+
         const { tab, customerId, siteId, guardId, startDate, endDate, } = req.query;
         const match = { liveStatus: "checkOut", status: "inactive", };
 
         if (customerId) match.customerId = customerId;
         if (siteId) match.siteId = siteId;
         if (guardId) match.guardId = guardId;
+        if (user) match.companyId = user.companyId
 
         if (startDate && endDate) { match.date = { $gte: new Date(startDate), $lte: new Date(endDate), } }
 
