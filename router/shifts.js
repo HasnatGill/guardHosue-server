@@ -550,7 +550,7 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
         const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
-        const shiftFormat = { ...updatedShift.toObject(), siteId: site, guard: guardUser }
+        const shiftFormat = { ...updatedShift.toObject(), site: site, guard: guardUser }
 
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
 

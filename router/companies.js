@@ -18,7 +18,7 @@ router.post("/add", verifyToken, async (req, res) => {
         const formData = req.body;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const existCompany = await Companies.findOne({ email })
+        const existCompany = await Companies.findOne({ email: formData.email })
         if (existCompany) return res.status(401).json({ message: "This email is already in use", isError: true })
 
         const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid });
