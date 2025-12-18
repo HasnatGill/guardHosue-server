@@ -532,19 +532,32 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         const { uid } = req;
         const { id: shiftId } = req.params;
+        const { checkInTime, timeZone = "UTC" } = cleanObjectValues(req.query);
 
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
         const alreadyActiveShift = await Shifts.findOne({ guardId: uid, status: "active", liveStatus: "checkIn" });
-
         if (alreadyActiveShift) { return res.status(400).json({ message: "You are already in a shift.", isError: true }); }
 
-        const { checkInTime } = cleanObjectValues(req.query);
+        const shift = await Shifts.findOne({ id: shiftId });
+        if (!shift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
+
+        const shiftStart = dayjs.utc(shift.start).tz(timeZone);
+        const checkInDate = dayjs.tz(checkInTime, timeZone);
+
+        let updatedTotalHours = shift.totalHours;
+        let lateMinutes = 0;
+
+        if (checkInDate.isAfter(shiftStart)) {
+            lateMinutes = checkInDate.diff(shiftStart, "minute");
+            const deductedHours = Math.ceil(lateMinutes / 30) * 0.5;
+            updatedTotalHours = Math.max(shift.totalHours - deductedHours, 0);
+        }
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: "active", liveStatus: "checkIn", checkIn: checkInTime } },
+            { $set: { status: "active", liveStatus: "checkIn", checkIn: checkInTime, totalHours: updatedTotalHours } },
             { new: true }
         );
 
@@ -567,12 +580,28 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 router.patch("/check-out/:id", verifyToken, async (req, res) => {
     try {
         const { id: shiftId } = req.params;
-        const { status = "inactive", liveStatus = "checkOut", checkOutTime } = cleanObjectValues(req.query);
+        const { status = "inactive", liveStatus = "checkOut", checkOutTime, timeZone = "UTC" } = cleanObjectValues(req.query);
 
+        const shift = await Shifts.findOne({ id: shiftId });
+        if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
+
+        // 🕒 Timezone-aware
+        const shiftEnd = dayjs.utc(shift.end).tz(timeZone);
+        const checkOutDate = dayjs.tz(checkOutTime, timeZone);
+
+        let updatedTotalHours = shift.totalHours;
+        let earlyMinutes = 0;
+
+        if (checkOutDate.isBefore(shiftEnd)) {
+            // Early check-out deduction
+            earlyMinutes = shiftEnd.diff(checkOutDate, "minute");
+            const deductedHours = Math.ceil(earlyMinutes / 30) * 0.5;
+            updatedTotalHours = Math.max(shift.totalHours - deductedHours, 0);
+        }
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: status, liveStatus: liveStatus, checkOut: checkOutTime } },
+            { $set: { status: status, liveStatus: liveStatus, checkOut: checkOutTime, totalHours: updatedTotalHours } },
             { new: true }
         );
 
