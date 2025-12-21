@@ -152,19 +152,19 @@ router.patch("/update-status/:id", verifyToken, async (req, res) => {
     try {
 
         const { uid } = req;
+        const { id } = req.params;
+        const { status } = req.body
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const { status } = req.body
 
-        const { id } = req.params;
 
-        await Sites.findOneAndUpdate(
+        const site = await Sites.findOneAndUpdate(
             { id },
             { $set: { status: status } },
             { new: true }
         );
 
-        res.status(200).json({ message: `Site ${status === "active" ? "restore" : "deleted"} successfully`, isError: false });
+        res.status(200).json({ message: `Site ${status === "active" ? "restore" : "deleted"} successfully`, site, isError: false });
 
     } catch (error) {
         console.error(error);

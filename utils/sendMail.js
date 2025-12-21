@@ -17,7 +17,7 @@ const transporter = nodemailer.createTransport({
 
 async function sendMail(to, subjectText, bodyHtml) {
     return transporter.sendMail({
-        from: `"Security Matrixai" <contact@securitymatrixai.com>`,
+        from: `"Security MatrixAI" <contact@securitymatrixai.com>`,
         to,
         subject: subjectText,
         html: bodyHtml,

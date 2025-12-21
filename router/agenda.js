@@ -14,8 +14,6 @@ agenda.define("mark missed schedule", async (job) => {
     const { scheduleId } = job.attrs.data;
     const schedule = await Schedules.findById(scheduleId);
 
-    console.log('schedule', schedule)
-
     const now = new Date()
 
     const startTime = new Date(schedule.start.time)
@@ -24,8 +22,6 @@ agenda.define("mark missed schedule", async (job) => {
     if (schedule && schedule.status === "pending" && graceTime < now) {
         schedule.status = "missed";
         await schedule.save();
-        console.log('schedule', schedule)
-
         const io = getIO()
         io.emit("scheduleUpdated", schedule);
         io.to(schedule.guardId).emit("scheduleMissed", schedule);

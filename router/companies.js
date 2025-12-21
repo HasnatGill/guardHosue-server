@@ -225,15 +225,26 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
     try {
 
         const { uid } = req;
+        const { id } = req.params
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const { id } = req.params
+        const company = await Companies.findOne({ id }).lean()
 
-        await Companies.findOneAndUpdate(
+        const user = await Users.findOne({ email: company.email }).lean()
+
+        const userUpdated = await Users.findOneAndUpdate(
+            { uid: user.uid },
+            { $set: { status: "inactive" } },
+            { new: true }
+        )
+
+        const companyUpdated = await Companies.findOneAndUpdate(
             { id },
             { $set: { status: "inactive" } },
             { new: true }
         )
+
+        req.io.emit('account_block', { info: { uid: userUpdated.uid, companyId: companyUpdated.id }, type: 'block', message: `Your account has been deactivated by the Super Admin.` });
 
         res.status(200).json({ message: "The company has been successfully deleted", isError: false })
 

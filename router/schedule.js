@@ -60,8 +60,6 @@ router.get("/all", verifyToken, async (req, res) => {
         const missedIds = schedules.filter(s => {
             const startTime = new Date(s.start.time);
             const graceTime = new Date(startTime.getTime() + 10 * 60000);
-            console.log('graceTime', graceTime)
-            console.log('now', now)
             return graceTime < now && s.status === "pending";
         }).map(s => s._id);
 

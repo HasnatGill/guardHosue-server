@@ -236,27 +236,21 @@ router.patch("/update-status/:userId", verifyToken, async (req, res) => {
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
         const user = await Users.findOne({ uid: userId }).lean()
-        
+
         if (status === "active") {
             const today = dayjs().tz(timeZone).utc(true).startOf("day");
             const expiryDate = dayjs(user.expireTo).utc(true).startOf("day");
-
-            if (today.isAfter(expiryDate)) {
-                return res.status(400).json({
-                    message: "License expired. Guard cannot be restored.",
-                    isError: true
-                });
-            }
+            if (today.isAfter(expiryDate)) { return res.status(400).json({ message: "License expired. Guard cannot be restored.", isError: true }); }
         }
 
 
-        await Users.findOneAndUpdate(
+        const userUpdated = await Users.findOneAndUpdate(
             { uid: userId },
             { $set: { status: status } },
             { new: true }
         );
 
-        res.status(200).json({ message: `Guard ${status === "active" ? "restore" : "deleted"} successfully`, isError: false });
+        res.status(200).json({ message: `Guard ${status === "active" ? "restore" : "deleted"} successfully`, guard: userUpdated, isError: false });
 
     } catch (error) {
         console.error(error);

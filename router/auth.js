@@ -45,6 +45,7 @@ router.post("/login", async (req, res) => {
 
         const user = await Users.findOne({ email })
         if (!user) { return res.status(404).json({ message: "User not found" }) }
+        if (user && user.status === "inactive") { return res.status(400).json({ message: "Your account has been deactivated by the Super Admin." }) }
 
         const match = await bcrypt.compare(password, user.password)
 

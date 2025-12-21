@@ -207,7 +207,6 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
             { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, liveStatus: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address" } }
         ]);
 
-        console.log('shifts', shifts)
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
 
     } catch (error) {
@@ -231,9 +230,11 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
 
         const oldGuardId = existingShift.guardId;
 
+        const { start, end, siteId, guardId, breakTime } = updatedData
+
         const updatedShift = await Shifts.findOneAndUpdate(
             { id },
-            { $set: updatedData },
+            { $set: { start: start, end: end, siteId: siteId, guardId: guardId, status: "pending", breakTime: breakTime } },
             { new: true }
         );
 
@@ -281,11 +282,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const now = currentTimeUTC.toDate()
         const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
         const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
-
-        console.log('currentTimeUTC=>', currentTimeUTC)
-        console.log('startOfDayUTC=>', startOfDayUTC)
-        console.log('endOfDayUTC=>', endOfDayUTC)
-
+        
         await Shifts.updateMany(
             { liveStatus: 'awaiting', end: { $lt: now } },
             { $set: { liveStatus: 'missed', status: 'inactive' } }
@@ -370,12 +367,11 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
 
         matchQuery.end = { $gte: startOfDayUTC };
         if (date) {
-            const selectedDateUTC = dayjs.tz(date, timeZone).startOf('day').utc();
+            const selectedDateUTC = dayjs(date);
             const nextDateUTC = selectedDateUTC.add(1, 'day');
             matchQuery.date = { $gte: selectedDateUTC.toDate(), $lt: nextDateUTC.toDate(), };
             delete matchQuery.end;
         }
-
         let pipeline = [
             { $match: matchQuery },
             { $lookup: { from: 'sites', localField: 'siteId', foreignField: 'id', as: 'siteInfo' } },
@@ -411,45 +407,45 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
     }
 });
 
-router.patch("/updated-status/:id", verifyToken, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { uid } = req;
-        const { status } = req.body
+// router.patch("/updated-status/:id", verifyToken, async (req, res) => {
+//     try {
+//         const { id } = req.params;
+//         const { uid } = req;
+//         const { status } = req.body
 
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+//         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const existingShift = await Shifts.findOne({ id });
-        if (!existingShift) return res.status(404).json({ message: "Shift not found.", isError: true });
+//         const existingShift = await Shifts.findOne({ id });
+//         if (!existingShift) return res.status(404).json({ message: "Shift not found.", isError: true });
 
-        const updatedShift = await Shifts.findOneAndUpdate(
-            { id },
-            { $set: { status: status } },
-            { new: true }
-        );
+//         const updatedShift = await Shifts.findOneAndUpdate(
+//             { id },
+//             { $set: { status: status } },
+//             { new: true }
+//         );
 
-        const guardId = updatedShift.guardId;
+//         const guardId = updatedShift.guardId;
 
-        const guardUser = await Users.findOne({ uid: guardId }, 'fullName uid');
-        const siteData = await Sites.findOne({ id: updatedShift.siteId }, 'name city address');
+//         const guardUser = await Users.findOne({ uid: guardId }, 'fullName uid');
+//         const siteData = await Sites.findOne({ id: updatedShift.siteId }, 'name city address');
 
-        const shiftToSend = {
-            ...updatedShift.toObject(),
-            guardName: guardUser ? guardUser.fullName : "",
-            siteName: siteData ? siteData.name : "",
-            guardEmail: guardUser ? guardUser.email : "",
-            siteAddress: siteData ? siteData.address : "",
-            siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
-        };
+//         const shiftToSend = {
+//             ...updatedShift.toObject(),
+//             guardName: guardUser ? guardUser.fullName : "",
+//             siteName: siteData ? siteData.name : "",
+//             guardEmail: guardUser ? guardUser.email : "",
+//             siteAddress: siteData ? siteData.address : "",
+//             siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
+//         };
 
-        if (guardId && req.io) { req.io.to(guardId).emit('request_approved', { shift: shiftToSend, message: `Your Request approved`, }); }
+//         if (guardId && req.io) { req.io.to(guardId).emit('request_approved', { shift: shiftToSend, message: `Your Request approved`, }); }
 
-        res.status(200).json({ message: "Shift updated successfully", isError: false, shift: updatedShift });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Something went wrong while updating the shift", isError: true, error });
-    }
-});
+//         res.status(200).json({ message: "Shift updated successfully", isError: false, shift: updatedShift });
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ message: "Something went wrong while updating the shift", isError: true, error });
+//     }
+// });
 
 router.patch("/request-approval/:id", verifyToken, async (req, res) => {
     try {
@@ -463,7 +459,7 @@ router.patch("/request-approval/:id", verifyToken, async (req, res) => {
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id },
-            { $set: { status: "request", reason: "Approval Shift" } },
+            { $set: { status: "active" } },
             { new: true }
         );
         const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
@@ -478,9 +474,7 @@ router.patch("/request-approval/:id", verifyToken, async (req, res) => {
             siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
         };
 
-        req.io.emit('new_request', { shift: shiftToSend, message: `Request for approval shift.` });
-
-        res.status(200).json({ message: "Approval Request sent successfully", isError: false, shift: updatedShift });
+        res.status(200).json({ message: "Approval Request sent successfully", isError: false, shift: shiftToSend });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Something went wrong while sending approval request for shift", isError: true, error });
