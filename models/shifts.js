@@ -23,6 +23,7 @@ const schema = new Schema({
         }],
         default: []
     },
+    totalPayments: { type: Number, default: 0 },
     attachments: { type: Schema.Types.Mixed, default: [] },
     liveStatus: { type: String, default: "awaiting" },
     status: { type: String, default: "pending" },

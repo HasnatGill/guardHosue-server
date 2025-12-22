@@ -282,7 +282,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const now = currentTimeUTC.toDate()
         const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
         const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
-        
+
         await Shifts.updateMany(
             { liveStatus: 'awaiting', end: { $lt: now } },
             { $set: { liveStatus: 'missed', status: 'inactive' } }
@@ -366,6 +366,7 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
         const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
 
         matchQuery.end = { $gte: startOfDayUTC };
+
         if (date) {
             const selectedDateUTC = dayjs(date);
             const nextDateUTC = selectedDateUTC.add(1, 'day');
@@ -473,6 +474,8 @@ router.patch("/request-approval/:id", verifyToken, async (req, res) => {
             siteAddress: siteData ? siteData.address : "",
             siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
         };
+
+          req.io.emit('shift_approved', { shift: shiftToSend, message: `Shit Approved.` });
 
         res.status(200).json({ message: "Approval Request sent successfully", isError: false, shift: shiftToSend });
     } catch (error) {
@@ -593,14 +596,18 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
             updatedTotalHours = Math.max(shift.totalHours - deductedHours, 0);
         }
 
+        const guard = await Users.findOne({ uid: shift.guardId })
+
+        const totalPay = updatedTotalHours * guard.perHour
+
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: status, liveStatus: liveStatus, checkOut: checkOutTime, totalHours: updatedTotalHours } },
+            { $set: { status: status, liveStatus: liveStatus, checkOut: checkOutTime, totalHours: updatedTotalHours, totalPayments: totalPay } },
             { new: true }
         );
 
         const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
-        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
+        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email perHours uid');
         const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser }
 
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }

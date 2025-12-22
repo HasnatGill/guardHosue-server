@@ -156,8 +156,6 @@ router.patch("/update-status/:id", verifyToken, async (req, res) => {
         const { status } = req.body
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-
-
         const site = await Sites.findOneAndUpdate(
             { id },
             { $set: { status: status } },

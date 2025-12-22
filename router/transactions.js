@@ -14,20 +14,20 @@ dayjs.extend(timezone);
 
 const customersSitesPipeline = (match) => [
     { $match: match },
-    { $group: { _id: { siteId: "$siteId", customerId: "$customerId" }, totalHours: { $sum: "$totalHours" }, }, },
+    { $group: { _id: { siteId: "$siteId", customerId: "$customerId" }, totalHours: { $sum: "$totalHours" }, totalPayments: { $sum: "$totalPayments" } }, },
     { $lookup: { from: "sites", localField: "_id.siteId", foreignField: "id", as: "site", }, },
     { $unwind: "$site" },
     { $lookup: { from: "customers", localField: "_id.customerId", foreignField: "id", as: "customer", }, },
     { $unwind: "$customer" },
-    { $project: { _id: 0, id: "$site.id", customerId: "$customer.id", customerName: "$customer.name", name: "$site.name", country: "$site.country", city: "$site.city", totalHours: { $round: ["$totalHours", 2] }, }, },
+    { $project: { _id: 0, id: "$site.id", customerId: "$customer.id", customerName: "$customer.name", name: "$site.name", country: "$site.country", city: "$site.city", totalHours: { $round: ["$totalHours", 2] }, totalPayments: { $round: ["$totalPayments", 2] } }, },
 ];
 
 const guardsPipeline = (match) => [
     { $match: match },
-    { $group: { _id: "$guardId", totalHours: { $sum: "$totalHours" }, }, },
+    { $group: { _id: "$guardId", totalHours: { $sum: "$totalHours" }, totalPayments: { $sum: "$totalPayments" } }, },
     { $lookup: { from: "users", localField: "_id", foreignField: "uid", as: "guard", }, },
     { $unwind: "$guard" },
-    { $project: { _id: 0, uid: "$guard.uid", fullName: "$guard.fullName", email: "$guard.email", phone: "$guard.phone", companyId: "$guard.companyId", totalHours: { $round: ["$totalHours", 2] }, }, },
+    { $project: { _id: 0, uid: "$guard.uid", fullName: "$guard.fullName", email: "$guard.email", phone: "$guard.phone", companyId: "$guard.companyId", totalHours: { $round: ["$totalHours", 2] }, totalPayments: { $round: ["$totalPayments", 2] } }, },
 ];
 
 router.get("/all", verifyToken, async (req, res) => {
