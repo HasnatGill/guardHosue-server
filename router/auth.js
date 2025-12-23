@@ -280,7 +280,7 @@ router.post("/forgot-password", async (req, res) => {
 
                <p style="font-size:14px; color:#555555; margin:25px 0 0;">
                 Regards,<br />
-                <strong>Security Matrix AI</strong>
+                <strong>Security Matrix AI Team</strong>
               </p>
             </td>
           </tr>

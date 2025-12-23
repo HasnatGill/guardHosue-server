@@ -17,8 +17,10 @@ router.post("/add", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        // const emailExists = await Customers.findOne({ email: formData.email });
-        // if (emailExists) { return res.status(400).json({ message: "This email is already in use", isError: true }); }
+        const existCompany = await Customers.findOne({ email: formData.email })
+        const adminExist = await Users.findOne({ email: formData.email })
+        if (adminExist) { return res.status(409).json({ message: "An account with this email already exists.", isError: true }); }
+        if (existCompany) { return res.status(409).json({ message: "This email is already associated with another customer.", isError: true }); }
 
         const customer = new Customers({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId });
 
@@ -137,6 +139,13 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
 
         const customer = await Customers.findOne({ id });
         if (!customer) { return res.status(404).json({ message: "Customer not found" }); }
+
+        if (customer.email !== formData.email) {
+            const existCompany = await Customers.findOne({ email: formData.email })
+            const adminExist = await Users.findOne({ email: formData.email })
+            if (adminExist) { return res.status(409).json({ message: "An account with this email already exists.", isError: true }); }
+            if (existCompany) { return res.status(409).json({ message: "This email is already associated with another customer.", isError: true }); }
+        }
 
         const updatedCustomer = await Customers.findOneAndUpdate(
             { id },

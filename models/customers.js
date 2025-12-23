@@ -7,17 +7,7 @@ const contactSchema = new mongoose.Schema({
     firstName: { type: String, trim: true },
     lastName: { type: String, trim: true },
     phone: { type: String, trim: true },
-    email: {
-        type: String, required: false, unique: false, default: "",
-        validate: {
-            validator: async function (value) {
-                if (!value) return true; // Skip validation if email is empty
-                const existingUser = await this.constructor.findOne({ email: value });
-                return !existingUser; // Return false if email already exists
-            },
-            message: "Email must be unique.",
-        },
-    },
+    email: { type: String, required: false, unique: false, default: "", },
     position: { type: String, trim: true },
     note: { type: String, trim: true },
 }, { _id: false });
@@ -30,11 +20,13 @@ const customerSchema = new mongoose.Schema({
     referenceId: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, unique: true },
     country: { type: Schema.Types.Mixed, required: true },
-    province: { type: Schema.Types.Mixed, required: false, default: '{}' },
-    city: { type: Schema.Types.Mixed, required: false, default: "{}" },
+    province: { type: String, required: true, default: "", trim: true },
+    city: { type: String, required: true, default: "", trim: true },
     zipCode: { type: String, required: true, trim: true },
-    address: { type: String, required: true, trim: true },
-    invoiceReminder: { type: String, default: "" },
+    address: { type: String, required: false, trim: true, default: "", },
+    street_address: { type: String, required: false, trim: true, default: "" },
+    street_address_1: { type: String, required: false, trim: true, default: "" },
+    invoiceReminder: { type: Number, default: 30 },
     contacts: { type: [contactSchema], default: [] },
     status: { type: String, default: "active" },
     createdBy: { type: String, required: true },

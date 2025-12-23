@@ -2,7 +2,6 @@ const express = require("express")
 const multer = require("multer");
 const Users = require("../models/auth")
 const Shifts = require("../models/shifts")
-const Sites = require("../models/sites")
 const { verifyToken } = require("../middlewares/auth")
 const { cloudinary, deleteFileFromCloudinary } = require("../config/cloudinary")
 const { getRandomId, cleanObjectValues, } = require("../config/global")
@@ -50,11 +49,95 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         await newUser.save();
 
         const verifyUrl = `${APP_URL_1}/auth/set-password?token=${token}&email=${email}`;
-        const bodyHtml = `<p>Hello ${fullName},</p>
-                         <p>Please click the link below to set your password:</p>
-                         <a href="${verifyUrl}" style="color: blue; text-decoration: underline;">Set Password</a>`
+      const bodyHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Set Your Password</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+          style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
 
-        await sendMail(email, "Set admin profile password for Security Matrix AI", bodyHtml);
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#BF0603; padding:20px; text-align:center;">
+              <h2 style="margin:0; color:#ffffff; font-size:22px;">
+                Security Matrix AI
+              </h2>
+              <p style="margin:5px 0 0; color:#ffffff; font-size:14px;">
+                Guard Account Setup
+              </p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:30px;">
+              <p style="font-size:16px; color:#333333; margin:0 0 10px;">
+                Hello ${fullName},
+              </p>
+
+              <p style="font-size:15px; color:#555555; line-height:1.6; margin:0 0 20px;">
+                Your guard account has been created for the Security Matrix AI application.
+                Please set your password to activate and access your account.
+              </p>
+
+              <!-- Button -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="${verifyUrl}"
+                      style="
+                        display:inline-block;
+                        padding:12px 30px;
+                        background-color:#BF0603;
+                        color:#ffffff;
+                        text-decoration:none;
+                        font-size:15px;
+                        font-weight:bold;
+                        border-radius:5px;
+                      ">
+                      Set Password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="font-size:14px; color:#777777; margin:25px 0 0; line-height:1.6;">
+                For security reasons, this link is time-limited.
+                If you did not expect this email, please ignore it.
+              </p>
+
+              <p style="font-size:14px; color:#555555; margin-top:25px;">
+                Regards,<br />
+                <strong>Security Matrix AI Team</strong>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f1f3f5; padding:12px; text-align:center;">
+              <p style="font-size:12px; color:#999999; margin:0;">
+                © ${dayjs().toDate().getFullYear()} Security Matrix AI. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
+        await sendMail(email, "Set your password - Security Matrix AI", bodyHtml);
 
         res.status(201).json({ message: "Guard added successfully, Verification email sent.", guard: newUser });
 
