@@ -6,6 +6,7 @@ const Companies = require("../models/companies")
 const { verifyToken, verifySuperAdmin } = require("../middlewares/auth")
 const { getRandomId } = require("../config/global")
 const sendMail = require("../utils/sendMail")
+const dayjs = require("dayjs")
 
 const router = express.Router()
 
@@ -50,11 +51,8 @@ router.post("/login", async (req, res) => {
         const match = await bcrypt.compare(password, user.password)
 
         if (match) {
-
             const { uid } = user
-
             const token = jwt.sign({ uid }, JWT_SECRET_KEY, { expiresIn: "1d" })
-
             res.status(200).json({ message: "User loggedIn successfully", isError: false, token })
         } else {
             return res.status(404).json({ message: "Password is incorrect" })
@@ -225,7 +223,89 @@ router.post("/forgot-password", async (req, res) => {
         );
         const pathUrl = `/auth/otp-verify?email=${email}`;
 
-        await sendMail(email, "Password Reset OTP", `Your OTP for password reset is ${otp}. It will expire in 1 minutes.`);
+        const bodyHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Password Reset OTP</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+          style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+
+          <tr>
+            <td style="background-color:#BF0603; padding:20px; text-align:center;">
+              <h2 style="margin:0; color:#ffffff; font-size:22px;">
+                Password Reset Request
+              </h2>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:30px;">
+              <p style="font-size:16px; color:#333333; margin:0 0 10px;">
+                Hello,
+              </p>
+
+              <p style="font-size:15px; color:#555555; line-height:1.6; margin:0 0 20px;">
+                We received a request to reset your account password.
+                Please use the OTP below to continue.
+              </p>
+
+              <div style="
+                text-align:center;
+                font-size:28px;
+                letter-spacing:6px;
+                font-weight:bold;
+                color:#BF0603;
+                background-color:#fdecec;
+                padding:15px;
+                border-radius:6px;
+                margin:20px 0;
+              ">
+                ${otp}
+              </div>
+
+              <p style="font-size:14px; color:#555555;">
+                This OTP is valid for <strong>1 minute</strong>.
+              </p>
+
+              <p style="font-size:14px; color:#777777; line-height:1.6;">
+                If you did not request a password reset, please ignore this email.
+              </p>
+
+               <p style="font-size:14px; color:#555555; margin:25px 0 0;">
+                Regards,<br />
+                <strong>Security Matrix AI</strong>
+              </p>
+            </td>
+          </tr>
+
+           <tr>
+            <td style="background-color:#f1f3f5; padding:15px; text-align:center;">
+              <p style="font-size:12px; color:#999999; margin:0;">
+                © ${dayjs().toDate().getFullYear()} Security Matrix AI. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
+        await sendMail(
+            email,
+            "Password Reset OTP",
+            bodyHtml
+        );
 
         res.status(200).json({ message: "OTP sent successfully", url: pathUrl });
     } catch (error) {

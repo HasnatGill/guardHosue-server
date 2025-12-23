@@ -17,8 +17,8 @@ router.post("/add", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const emailExists = await Customers.findOne({ email: formData.email });
-        if (emailExists) { return res.status(400).json({ message: "This email is already in use", isError: true }); }
+        // const emailExists = await Customers.findOne({ email: formData.email });
+        // if (emailExists) { return res.status(400).json({ message: "This email is already in use", isError: true }); }
 
         const customer = new Customers({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId });
 

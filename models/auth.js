@@ -8,9 +8,9 @@ const schema = new Schema({
         type: String, required: false, unique: false, default: "",
         validate: {
             validator: async function (value) {
-                if (!value) return true; // Skip validation if email is empty
+                if (!value) return true;
                 const existingUser = await this.constructor.findOne({ email: value });
-                return !existingUser; // Return false if email already exists
+                return !existingUser;
             },
             message: "Email must be unique.",
         },

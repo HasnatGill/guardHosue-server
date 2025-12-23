@@ -16,14 +16,14 @@ const shifts = require("./router/shifts")
 const users = require("./router/users")
 const schedules = require("./router/schedule")
 
-const { APP_URL, APP_URL_1, APP_URL_2, PORT = 8000, HOST = "0.0.0.0" } = process.env
+const { APP_URL, APP_URL_1, APP_URL_2, APP_URL_3, PORT = 8000, HOST = "0.0.0.0" } = process.env
 
 connectDB();
 
 const app = express()
 
 app.use(cors({
-    origin: [APP_URL, APP_URL_1, APP_URL_2],
+    origin: [APP_URL_3, APP_URL_1, APP_URL_2, APP_URL],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -36,7 +36,7 @@ const server = http.createServer(app)
 
 // ✅ socket.js ka use karo
 const { initIO } = require("./socket")
-const io = initIO(server, [APP_URL, APP_URL_1, APP_URL_2,])
+const io = initIO(server, [APP_URL, APP_URL_1, APP_URL_2, APP_URL_3])
 
 app.use((req, res, next) => {
     req.io = io;
@@ -59,7 +59,7 @@ app.get("/db-test", (req, res) => {
 app.use("/auth", auth)
 app.use("/companies", companies)
 app.use("/customers", customers)
-app.use("/transactions", transactions)  
+app.use("/transactions", transactions)
 app.use("/sites-registered", sites)
 app.use("/users", users)
 app.use("/shifts", shifts)
