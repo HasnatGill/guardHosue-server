@@ -302,7 +302,6 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
             });
         }
 
-
         // ---- Prepare Updated Fields
         const updatedData = { ...req.body, photoURL, photosPublicId, updatedAt: new Date() };
 

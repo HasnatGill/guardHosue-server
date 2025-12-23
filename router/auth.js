@@ -326,7 +326,10 @@ router.post("/verify-otp", async (req, res) => {
 
         if (new Date() > new Date(user.otpExpires)) return res.status(400).json({ message: "OTP has expired" });
 
-        const token = jwt.sign({ email }, JWT_SECRET_KEY, { expiresIn: "5m" });
+        let token;
+        try {
+            token = jwt.sign({ email }, JWT_SECRET_KEY, { expiresIn: "5m" });
+        } catch (err) { return res.status(401).json({ message: "Your session has expired. Please try verifying OTP again.", error: err.message }); }
 
         await Users.findOneAndUpdate(
             { email },
