@@ -204,7 +204,7 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
 
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
             { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
-            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, liveStatus: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address" } }
+            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, liveStatus: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", checkIn: 1, } }
         ]);
 
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
@@ -472,10 +472,10 @@ router.patch("/request-approval/:id", verifyToken, async (req, res) => {
             guardEmail: guardUser ? guardUser.email : "",
             siteName: siteData ? siteData.name : "",
             siteAddress: siteData ? siteData.address : "",
-            siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
+            siteCity: siteData ? siteData.city : "",
         };
 
-          req.io.emit('shift_approved', { shift: shiftToSend, message: `Shit Approved.` });
+        req.io.emit('shift_approved', { shift: shiftToSend, message: `Shit Approved.` });
 
         res.status(200).json({ message: "Approval Request sent successfully", isError: false, shift: shiftToSend });
     } catch (error) {
@@ -511,7 +511,7 @@ router.patch("/send-request/:id", verifyToken, async (req, res) => {
             guardEmail: guardUser ? guardUser.email : "",
             siteName: siteData ? siteData.name : "",
             siteAddress: siteData ? siteData.address : "",
-            siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
+            siteCity: siteData ? siteData.city : "",
         };
 
         req.io.emit('new_request', { shift: shiftToSend, message: `New Request.` });
