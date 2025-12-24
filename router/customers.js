@@ -1,8 +1,9 @@
 const express = require("express");
 const Customers = require("../models/customers"); // your customer model
 const Users = require("../models/auth")
+const Sites = require("../models/sites")
 const { verifyToken } = require("../middlewares/auth");
-const { getRandomId } = require("../config/global");
+const { getRandomId, cleanObjectValues } = require("../config/global");
 
 const router = express.Router();
 
@@ -189,27 +190,62 @@ router.get("/single-with-id/:id", verifyToken, async (req, res) => {
 =============================== */
 router.patch("/update-status/:id", verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        const { id } = req.params; // customer id
+        const { status } = req.body;
 
-        const { status } = req.body
+        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
+        if (!["active", "inactive"].includes(status)) { return res.status(400).json({ message: "Invalid status value.", isError: true }); }
 
-        const { id } = req.params;
-
-        await Customers.findOneAndUpdate(
+        const customer = await Customers.findOneAndUpdate(
             { id },
-            { $set: { status: status } },
+            { $set: { status } },
             { new: true }
         );
 
-        res.status(200).json({ message: `Customer ${status === "active" ? "restore" : "deleted"} successfully`, isError: false });
+        if (!customer) { return res.status(404).json({ message: "Customer not found.", isError: true }); }
+
+        await Sites.updateMany(
+            { customerId: id },
+            { $set: { status } }
+        );
+
+        res.status(200).json({ message: `Customer and all related sites ${status === "active" ? "restored" : "deactivated"} successfully.`, isError: false });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Something went wrong while updating the customer status", isError: true, error });
+        res.status(500).json({ message: "Something went wrong while updating status", isError: true, error });
     }
 });
+
+router.get("/all-sites", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+
+        const { status = "", customerId } = cleanObjectValues(req.query);
+        let match = {};
+
+        if (status) { match.status = status; }
+        if (user.companyId) { match.companyId = user.companyId }
+        if (customerId) { match.customerId = customerId }
+
+        const sites = await Sites.aggregate([
+            { $match: match },
+            { $project: { _id: 0, id: 1, name: 1, customerId: 1, } }
+        ]);
+
+        res.status(200).json({ message: "Sites fetched", isError: false, sites });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong while getting the Sites", isError: true, error });
+    }
+});
+
 
 /* ============================
     DELETED CUSTOMER (SOFT DELETE)

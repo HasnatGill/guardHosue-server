@@ -96,7 +96,7 @@ router.get("/all-sites", verifyToken, async (req, res) => {
 
         const sites = await Sites.aggregate([
             { $match: match },
-            { $project: { _id: 0, id: 1, name: 1 } }
+            { $project: { _id: 0, id: 1, name: 1, customerId: 1 } }
         ]);
 
         res.status(200).json({ message: "Sites fetched", isError: false, sites });
