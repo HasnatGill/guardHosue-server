@@ -244,9 +244,9 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
         const shiftToSend = {
             ...updatedShift.toObject(),
             guardName: guardUser ? guardUser.fullName : "",
-            siteName: siteData ? siteData.name : "",
+            siteName: siteData ? siteData.name : "",    
             siteAddress: siteData ? siteData.address : "",
-            siteCity: siteData ? JSON.parse(siteData.city || '{}').label : "",
+            siteCity: siteData ? siteData.city : "",
         };
 
         const shiftMessage = `Your shift Update at ${shiftToSend.siteName}`;
