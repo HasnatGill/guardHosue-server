@@ -19,9 +19,29 @@ const invoicesSchema = new Schema({
     status: { type: String, enum: ['draft', 'sent', 'paid', 'partiallyPaid', 'overdue', 'cancelled'], default: 'draft' },
     amountPaid: { type: Number, default: 0 },
     balanceDue: { type: Number, required: true },
-    approvalBy: { type: String, require: true, },
     createdBy: { type: String, require: true },
 }, { timestamps: true });
+
+invoicesSchema.pre("save", async function (next) {
+    if (!this.isNew) return next();
+
+    try {
+        const lastInvoice = await this.constructor.findOne().sort({ createdAt: -1 }).select("invoiceNo");
+        let nextSequence = 1;
+
+        if (lastInvoice?.invoiceNo) {
+            const lastSeq = parseInt(lastInvoice.invoiceNo.split("-").pop());
+            nextSequence = lastSeq + 1;
+        }
+
+        const randomNumber = Math.floor(1000000 + Math.random() * 900000000);
+
+        this.invoiceNo = `INV-${randomNumber}-${nextSequence}`;
+        next();
+    } catch (error) {
+        next(error);
+    }
+});
 
 const Invoices = mongoose.model("invoices", invoicesSchema);
 

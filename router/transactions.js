@@ -30,6 +30,21 @@ const guardsPipeline = (match) => [
     { $project: { _id: 0, uid: "$guard.uid", fullName: "$guard.fullName", email: "$guard.email", phone: "$guard.phone", companyId: "$guard.companyId", totalHours: { $round: ["$totalHours", 2] }, totalPayments: { $round: ["$totalPayments", 2] } }, },
 ];
 
+router.post(`/generate-invoice`, verifyToken, async (req, res) => {
+    try {
+
+        const { uid } = req;
+        if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
+
+        let formData = req.body;
+
+        let { rate, quantity, companyId, issueDate, dueDate, billingBasis, billingPeriod } = formData;
+
+    } catch (error) {
+
+    }
+})
+
 router.get("/all", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
