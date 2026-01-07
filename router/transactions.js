@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const { verifyToken } = require("../middlewares/auth");
 const Transactions = require("../models/Transactions");
+const Customers = require("../models/customers")
+const Sites = require("../models/sites")
 const Shifts = require("../models/shifts");
 const Users = require("../models/auth");
 
@@ -37,11 +39,20 @@ router.post(`/generate-invoice`, verifyToken, async (req, res) => {
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         let formData = req.body;
+        let { rate, companyId, dueDate, billingBasis, billingPeriod, tax } = formData;
 
-        let { rate, quantity, companyId, issueDate, dueDate, billingBasis, billingPeriod } = formData;
+        const countStrategies = {
+            customers: () => Customers.countDocuments({ status: "active", companyId }),
+            sites: () => Sites.countDocuments({ status: "active", companyId }),
+            guards: () => Users.countDocuments({ status: "active", companyId, roles: { $in: ["guard"] } })
+        };
+        const countFn = countStrategies[billingBasis] || countStrategies.guards;
+
+        const quantity = await countFn();
 
     } catch (error) {
-
+        console.error(error);
+        return res.status(500).json({ message: "Something went wrong in API", error: error.message });
     }
 })
 
