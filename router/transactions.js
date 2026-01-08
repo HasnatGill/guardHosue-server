@@ -6,6 +6,9 @@ const Customers = require("../models/customers")
 const Sites = require("../models/sites")
 const Shifts = require("../models/shifts");
 const Users = require("../models/auth");
+const Invoices = require("../models/invoices");
+const Companies = require("../models/companies");
+const { getRandomId } = require("../config/global");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -34,21 +37,58 @@ const guardsPipeline = (match) => [
 
 router.post(`/generate-invoice`, verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         let formData = req.body;
         let { rate, companyId, dueDate, billingBasis, billingPeriod, tax } = formData;
 
+        if (!companyId || !dueDate || !billingBasis || !billingPeriod || !rate) {
+            return res.status(400).json({ message: "Missing required fields", isError: true });
+        }
+
         const countStrategies = {
             customers: () => Customers.countDocuments({ status: "active", companyId }),
             sites: () => Sites.countDocuments({ status: "active", companyId }),
             guards: () => Users.countDocuments({ status: "active", companyId, roles: { $in: ["guard"] } })
         };
-        const countFn = countStrategies[billingBasis] || countStrategies.guards;
+
+        const countFn = countStrategies[billingBasis];
+        if (!countFn) {
+            return res.status(400).json({ message: "Invalid billing basis", isError: true });
+        }
 
         const quantity = await countFn();
+
+        if (quantity === 0) {
+            return res.status(400).json({ message: `No active ${billingBasis} found for this company.`, isError: true });
+        }
+
+        const subtotal = Number(rate) * Number(quantity);
+        const taxAmount = Number(tax || 0);
+
+        const totalAmount = subtotal + taxAmount;
+
+        const invoiceId = getRandomId();
+
+        const newInvoice = new Invoices({
+            id: invoiceId,
+            companyId,
+            dueDate,
+            billingPeriod,
+            billingBasis,
+            rate,
+            quantity,
+            subtotal,
+            tax: taxAmount,
+            totalAmount: Math.round(totalAmount),
+            balanceDue: Math.round(totalAmount),
+            createdBy: uid
+        });
+
+        await newInvoice.save();
+
+        res.status(201).json({ message: "Invoice generated successfully", isError: false, invoice: newInvoice });
 
     } catch (error) {
         console.error(error);
