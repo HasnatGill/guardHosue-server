@@ -101,7 +101,7 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        let { pageNo = 1, perPage = 10, status, ref, companyId, startDate, endDate } = req.query;
+        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate } = req.query;
 
         pageNo = Number(pageNo);
         perPage = Number(perPage);
@@ -110,23 +110,43 @@ router.get("/all", verifyToken, async (req, res) => {
         const match = {};
 
         if (status) match.status = status;
-        if (ref) match.ref = { $regex: ref, $options: "i" };
         if (companyId) match.companyId = companyId;
-        if (startDate || endDate) match.transactionDate = {};
-        if (startDate) match.transactionDate.$gte = new Date(startDate);
-        if (endDate) match.transactionDate.$lte = new Date(endDate);
 
-        const result = await Transactions.aggregate([
+        if (startDate || endDate) {
+            match.transactionDate = {};
+            if (startDate) match.transactionDate.$gte = new Date(startDate);
+            if (endDate) match.transactionDate.$lte = new Date(endDate);
+        }
+
+        const pipeline = [
             { $match: match },
             { $lookup: { from: "companies", localField: "companyId", foreignField: "id", as: "company" } },
             { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
+        ];
+
+        if (search) {
+            pipeline.push({
+                $match: {
+                    $or: [
+                        { ref: { $regex: search, $options: "i" } },
+                        { "company.name": { $regex: search, $options: "i" } },
+                        { "company.registrationNo": { $regex: search, $options: "i" } }
+                    ]
+                }
+            });
+        }
+
+        pipeline.push(
+            { $sort: { transactionDate: -1 } },
             {
                 $facet: {
-                    data: [{ $sort: { transactionDate: -1 } }, { $skip: skip }, { $limit: perPage }],
+                    data: [{ $skip: skip }, { $limit: perPage }],
                     total: [{ $count: "count" }]
                 }
             }
-        ]);
+        );
+
+        const result = await Transactions.aggregate(pipeline);
 
         const [{ data, total }] = result;
 

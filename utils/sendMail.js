@@ -15,12 +15,13 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-async function sendMail(to, subjectText, bodyHtml) {
+async function sendMail(to, subjectText, bodyHtml, attachments = []) {
     return transporter.sendMail({
         from: `"Security Matrix AI" <contact@securitymatrixai.com>`,
         to,
         subject: subjectText,
         html: bodyHtml,
+        attachments
     });
 }
 

@@ -2,8 +2,11 @@ const express = require("express");
 const router = express.Router();
 const Invoices = require("../models/invoices");
 const Transactions = require("../models/Transactions");
+const Companies = require("../models/companies");
 const { verifyToken } = require("../middlewares/auth");
 const { getRandomId, getRandomRef, cleanObjectValues } = require("../config/global");
+const sendMail = require("../utils/sendMail");
+const generateInvoicePDF = require("../utils/invoicePdfGenerator");
 
 // Create a new invoice manually
 router.post("/add", verifyToken, async (req, res) => {
@@ -30,7 +33,7 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        let { pageNo = 1, perPage = 10, status, invoiceNo, companyId, startDate, endDate } = req.query;
+        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate } = req.query;
 
         pageNo = Number(pageNo);
         perPage = Number(perPage);
@@ -40,18 +43,34 @@ router.get("/all", verifyToken, async (req, res) => {
 
         if (status) match.status = status;
         if (companyId) match.companyId = companyId;
-        if (invoiceNo) match.invoiceNo = { $regex: invoiceNo, $options: "i" };
 
+        // Date Filtering
         if (startDate || endDate) {
             match.issueDate = {};
             if (startDate) match.issueDate.$gte = new Date(startDate);
             if (endDate) match.issueDate.$lte = new Date(endDate);
         }
 
-        const result = await Invoices.aggregate([
+        const pipeline = [
             { $match: match },
             { $lookup: { from: "companies", localField: "companyId", foreignField: "id", as: "company" } },
             { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
+        ];
+
+        // Search Filter (Applied after lookup to search company name)
+        if (search) {
+            pipeline.push({
+                $match: {
+                    $or: [
+                        { invoiceNo: { $regex: search, $options: "i" } },
+                        { "company.name": { $regex: search, $options: "i" } },
+                        { "company.registrationNo": { $regex: search, $options: "i" } }
+                    ]
+                }
+            });
+        }
+
+        pipeline.push(
             { $sort: { createdAt: -1 } },
             {
                 $facet: {
@@ -59,7 +78,9 @@ router.get("/all", verifyToken, async (req, res) => {
                     total: [{ $count: "count" }]
                 }
             }
-        ]);
+        );
+
+        const result = await Invoices.aggregate(pipeline);
 
         const invoices = result[0].data;
         const total = result[0].total[0]?.count || 0;
@@ -163,6 +184,73 @@ router.post("/pay/:id", verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Internal Server Error", isError: true, error: error.message });
+    }
+});
+
+// Send Invoices via Email
+router.post("/send", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { invoiceIds } = req.body; // Array of IDs
+
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!invoiceIds || !Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+            return res.status(400).json({ message: "No invoices selected", isError: true });
+        }
+
+        const invoices = await Invoices.find({ id: { $in: invoiceIds } });
+
+        // Manual populate because companyId is a String(custom ID), not ObjectId
+        const companyIds = [...new Set(invoices.map(inv => inv.companyId))];
+        const companies = await Companies.find({ id: { $in: companyIds } });
+        const companyMap = companies.reduce((acc, comp) => {
+            acc[comp.id] = comp;
+            return acc;
+        }, {});
+
+        let sentCount = 0;
+
+        for (const invoice of invoices) {
+            const company = companyMap[invoice.companyId];
+            if (company && company.email) {
+                // Generate PDF
+                const pdfBuffer = await generateInvoicePDF(invoice, company);
+
+                const emailBody = `
+                    <h3>Invoice #${invoice.invoiceNo}</h3>
+                    <p>Dear ${company.name},</p>
+                    <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
+                    <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
+                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
+                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
+                    <br/>
+                    <p>Thank you for your business.</p>
+                `;
+
+                // Attachments array for nodemailer
+                const attachments = [
+                    {
+                        filename: `Invoice-${invoice.invoiceNo}.pdf`,
+                        content: pdfBuffer,
+                        contentType: 'application/pdf'
+                    }
+                ];
+
+                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from Security Matrix AI`, emailBody, attachments);
+
+                if (invoice.status === 'draft') {
+                    invoice.status = 'sent';
+                    await invoice.save();
+                }
+                sentCount++;
+            }
+        }
+
+        res.status(200).json({ message: `Successfully sent ${sentCount} invoices.`, sentCount });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Failed to send emails", isError: true, error: error.message });
     }
 });
 
