@@ -10,12 +10,13 @@ const dayjs = require("dayjs");
 
 const router = express.Router()
 
-const { APP_URL_1 } = process.env
+const { APP_URL } = process.env
 
 router.post("/add", verifyToken, async (req, res) => {
   try {
 
     const { uid } = req;
+    const { timeZone = "UTC" } = cleanObjectValues(req.query)
     const formData = req.body;
     if (!uid) return res.status(401).json({ message: "Unauthorized request. Please log in again.", isError: true });
 
@@ -24,7 +25,14 @@ router.post("/add", verifyToken, async (req, res) => {
     if (adminExist) { return res.status(409).json({ message: "An account with this email already exists.", isError: true }); }
     if (existCompany) { return res.status(409).json({ message: "This email is already associated with another company.", isError: true }); }
 
-    const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid });
+    // Billing Logic
+    let { freeTrial } = formData;
+    let trialEndsAt = null;
+    if (freeTrial) {
+      trialEndsAt = dayjs().tz(timeZone).utc(true).add(1, 'month').toDate();
+    }
+
+    const company = new Companies({ ...formData, freeTrial, trialEndsAt, id: getRandomId(), createdBy: uid });
     await company.save();
 
     const adminUid = getRandomId();
@@ -34,7 +42,7 @@ router.post("/add", verifyToken, async (req, res) => {
 
     await newUser.save();
 
-    const verifyUrl = `${APP_URL_1}/auth/set-password?token=${token}&email=${formData.email}`;
+    const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${formData.email}`;
     const bodyHtml = `<!DOCTYPE html>
 <html>
 <head>
@@ -135,7 +143,7 @@ router.get("/all", verifyToken, async (req, res) => {
     const { uid } = req;
     if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-    let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, paymentStatus } = cleanObjectValues(req.query);
+    let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, } = cleanObjectValues(req.query);
 
     perPage = Number(perPage);
     pageNo = Number(pageNo);
@@ -151,7 +159,6 @@ router.get("/all", verifyToken, async (req, res) => {
     const match = {};
 
     if (status) match.status = status;
-    if (paymentStatus) match.paymentStatus = paymentStatus;
     if (name) match.name = { $regex: name, $options: "i" };
     if (registrationNo) match.registrationNo = { $regex: registrationNo, $options: "i" };
     if (email) match.email = { $regex: email, $options: "i" };
@@ -181,17 +188,15 @@ router.get("/all", verifyToken, async (req, res) => {
           active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
           pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
           inactive: { $sum: { $cond: [{ $eq: ["$status", "inactive"] }, 1, 0] } },
-          paid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "paid"] }] }, 1, 0] } },
-          unpaid: { $sum: { $cond: [{ $and: [{ $eq: ["$status", status || "$status"] }, { $eq: ["$paymentStatus", "unpaid"] }] }, 1, 0] } },
         }
       }
     ]);
 
     const companies = result[0].data;
     const totals = result[0].total[0]?.count || 0;
-    const countResult = counts[0] || { active: 0, pending: 0, inactive: 0, paid: 0, unpaid: 0 };
+    const countResult = counts[0] || { active: 0, pending: 0, inactive: 0 };
 
-    return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals, count: { active: countResult.active, pending: countResult.pending, inactive: countResult.inactive, paid: countResult.paid, unpaid: countResult.unpaid } });
+    return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals, count: { active: countResult.active, pending: countResult.pending, inactive: countResult.inactive } });
 
   } catch (error) {
     console.error("Get companies error:", error);
@@ -279,6 +284,11 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     }
 
     const newData = { ...formData }
+
+    // Recalculate trial end if weeks changed
+    if (newData.trialPeriodWeeks && newData.trialPeriodWeeks != company.trialPeriodWeeks) {
+      newData.trialEndsAt = dayjs().add(newData.trialPeriodWeeks, 'week').toDate();
+    }
 
     const updatedCompany = await Companies.findOneAndUpdate({ id }, newData, { new: true })
     if (!updatedCompany) { return res.status(404).json({ message: "Company didn't update" }) }

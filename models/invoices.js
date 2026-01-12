@@ -16,7 +16,10 @@ const invoicesSchema = new Schema({
     subtotal: { type: Number, required: true },
     tax: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
-    status: { type: String, enum: ['draft', 'sent', 'paid', 'partiallyPaid', 'overdue', 'cancelled'], default: 'draft' },
+    status: { type: String, enum: ['draft', 'pending_approval', 'sent', 'paid', 'partiallyPaid', 'overdue', 'cancelled'], default: 'draft' },
+    approvalStatus: { type: String, enum: ['pending', 'approved'], default: 'pending' },
+    approvedBy: { type: String, default: null }, // Stores Admin UID
+    approvedAt: { type: Date, default: null },
     amountPaid: { type: Number, default: 0 },
     balanceDue: { type: Number, required: true },
     createdBy: { type: String, require: true },

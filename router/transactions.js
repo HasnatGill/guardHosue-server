@@ -50,7 +50,8 @@ router.post(`/generate-invoice`, verifyToken, async (req, res) => {
         const countStrategies = {
             customers: () => Customers.countDocuments({ status: "active", companyId }),
             sites: () => Sites.countDocuments({ status: "active", companyId }),
-            guards: () => Users.countDocuments({ status: "active", companyId, roles: { $in: ["guard"] } })
+            guards: () => Users.countDocuments({ status: "active", companyId, roles: { $in: ["guard"] } }),
+            yearly: () => 1
         };
 
         const countFn = countStrategies[billingBasis];
@@ -60,7 +61,7 @@ router.post(`/generate-invoice`, verifyToken, async (req, res) => {
 
         const quantity = await countFn();
 
-        if (quantity === 0) {
+        if (quantity === 0 && billingBasis !== 'yearly') {
             return res.status(400).json({ message: `No active ${billingBasis} found for this company.`, isError: true });
         }
 
@@ -192,6 +193,51 @@ router.get("/finance-hourly", verifyToken, async (req, res) => {
     }
 })
 
+// Approve Transactions (Payments)
+router.post("/approve", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { transactionIds } = req.body;
+
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
+            return res.status(400).json({ message: "No transactions selected", isError: true });
+        }
+
+        const transactions = await Transactions.find({ id: { $in: transactionIds }, status: "pending" });
+        let approvedCount = 0;
+
+        for (const trx of transactions) {
+            trx.status = "approved";
+            trx.approvedBy = uid;
+            await trx.save();
+
+            // Update Parent Invoice
+            const invoice = await Invoices.findOne({ id: trx.invoiceId });
+            if (invoice) {
+                invoice.amountPaid += trx.amount;
+                invoice.balanceDue = invoice.totalAmount - invoice.amountPaid;
+
+                if (invoice.balanceDue <= 0) {
+                    invoice.status = "paid";
+                    invoice.balanceDue = 0;
+                } else {
+                    invoice.status = "partiallyPaid";
+                }
+                await invoice.save();
+            }
+            approvedCount++;
+        }
+
+        res.status(200).json({ message: `${approvedCount} transactions approved successfully`, isError: false });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong during approval", isError: true, error });
+    }
+});
+
+// Helper for Hourly
 router.get("/total-hours", verifyToken, async (req, res) => {
     try {
         const { uid } = req;

@@ -4,7 +4,7 @@ const { Schema } = mongoose
 const schema = new Schema({
     id: { type: String, required: true, unique: true },
     name: { type: String, required: true, trim: true },
-    registrationNo: { type: String, required: true, trim: true },
+    registrationNo: { type: String, required: false, trim: true },
     email: { type: String, required: true, unique: true, trim: true },
     phone: { type: String, required: true, default: "", },
     country: { type: Schema.Types.Mixed, required: true, default: "{}" },
@@ -16,8 +16,14 @@ const schema = new Schema({
     street_address_1: { type: String, required: false, default: "", trim: true },
     isEmailVerify: { type: Boolean, default: false },
     status: { type: String, default: "pending" },
-    paymentStatus: { type: String, enum: ["paid", "unpaid"], default: "unpaid" },
-    expirePackage: { type: Date, default: null },
+
+    // Billing Fields
+    billingBasis: { type: String, enum: ['customers', 'sites', 'guards', 'yearly'], default: 'customers' },
+    rate: { type: Number, default: 0 },
+    yearlyRate: { type: Number, default: 0 },
+    freeTrial: { type: Boolean, default: true },
+    trialEndsAt: { type: Date, default: null },
+
     createdBy: { type: String, required: true, default: "" },
 }, { timestamps: true })
 
