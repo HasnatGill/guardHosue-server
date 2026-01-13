@@ -228,14 +228,50 @@ router.post("/send", verifyToken, async (req, res) => {
                 const pdfBuffer = await generateInvoicePDF(invoice, company);
 
                 const emailBody = `
-                    <h3>Invoice #${invoice.invoiceNo}</h3>
-                    <p>Dear ${company.name},</p>
-                    <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
-                    <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
-                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
-                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
-                    <br/>
-                    <p>Thank you for your business.</p>
+                    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                        <div style="border-bottom: 2px solid #eee; padding-bottom: 20px; margin-bottom: 20px;">
+                            <h2 style="color: #2c3e50; margin: 0;">New Incoming Invoice</h2>
+                            <p style="margin: 5px 0 0; color: #7f8c8d;">Adelar Facilities Management Ltd</p>
+                        </div>
+
+                        <p>Dear ${company.name},</p>
+                        <p>Please find attached your invoice for <strong>${dayjs(invoice.billingPeriod).format("MMMM YYYY")}</strong>.</p>
+                        
+                        <div style="background-color: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 5px; padding: 20px; margin: 20px 0;">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <tr>
+                                    <td style="padding: 8px 0; color: #7f8c8d;">Invoice Number:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${invoice.invoiceNo}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 0; color: #7f8c8d;">Invoice Date:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${new Date(invoice.issueDate).toLocaleDateString()}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 0; color: #7f8c8d;">Due Date:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${new Date(invoice.dueDate).toLocaleDateString()}</td>
+                                </tr>
+                                <tr>
+                                    <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold;">Total Amount:</td>
+                                    <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold; text-align: right; color: #2c3e50;">$${invoice.totalAmount.toFixed(2)}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 0; font-weight: bold; color: #d32f2f;">Balance Due:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #d32f2f;">$${invoice.balanceDue.toFixed(2)}</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <p>If you have any questions regarding this invoice, please do not hesitate to contact us at <a href="mailto:accounts@adelarltd.co.uk" style="color: #3498db; text-decoration: none;">accounts@adelarltd.co.uk</a>.</p>
+                        
+                        <br/>
+                        <p style="font-size: 0.9em; color: #7f8c8d;">
+                            Thank you for your business,<br/>
+                            <strong>Adelar Facilities Management Ltd</strong><br/>
+                            Suite 12 Fountain House, Fountain Lane<br/>
+                            Oldbury, B69 3BH, United Kingdom
+                        </p>
+                    </div>
                 `;
 
                 // Attachments array for nodemailer
