@@ -16,10 +16,7 @@ const invoicesSchema = new Schema({
     subtotal: { type: Number, required: true },
     tax: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
-    status: { type: String, enum: ['draft', 'pending_approval', 'sent', 'paid', 'partiallyPaid', 'overdue', 'cancelled'], default: 'draft' },
-    approvalStatus: { type: String, enum: ['pending', 'approved'], default: 'pending' },
-    approvedBy: { type: String, default: null }, // Stores Admin UID
-    approvedAt: { type: Date, default: null },
+    status: { type: String, enum: ['draft', 'sent', 'paid', 'partiallyPaid', 'overdue', 'cancelled'], default: 'draft' },
     amountPaid: { type: Number, default: 0 },
     balanceDue: { type: Number, required: true },
     createdBy: { type: String, require: true },
@@ -29,17 +26,32 @@ invoicesSchema.pre("save", async function (next) {
     if (!this.isNew) return next();
 
     try {
-        const lastInvoice = await this.constructor.findOne().sort({ createdAt: -1 }).select("invoiceNo");
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const monthPrefix = `${year}${month}`;
+
+        // Find the last invoice created in the current month
+        const startOfMonth = new Date(year, now.getMonth(), 1);
+        const endOfMonth = new Date(year, now.getMonth() + 1, 0, 23, 59, 59);
+
+        const lastInvoice = await this.constructor.findOne({
+            createdAt: { $gte: startOfMonth, $lte: endOfMonth }
+        }).sort({ createdAt: -1 }).select("invoiceNo");
+
         let nextSequence = 1;
 
         if (lastInvoice?.invoiceNo) {
-            const lastSeq = parseInt(lastInvoice.invoiceNo.split("-").pop());
-            nextSequence = lastSeq + 1;
+            // Extract sequence from INV-YYYYMM[Sequence]
+            // We assume the prefix length is fixed (INV- is 4 chars, YYYYMM is 6 chars = 10 chars total)
+            const lastSeqStr = lastInvoice.invoiceNo.replace(`INV-${monthPrefix}`, "");
+            const lastSeq = parseInt(lastSeqStr);
+            if (!isNaN(lastSeq)) {
+                nextSequence = lastSeq + 1;
+            }
         }
 
-        const randomNumber = Math.floor(1000000 + Math.random() * 900000000);
-
-        this.invoiceNo = `INV-${randomNumber}-${nextSequence}`;
+        this.invoiceNo = `INV-${monthPrefix}${nextSequence}`;
         next();
     } catch (error) {
         next(error);

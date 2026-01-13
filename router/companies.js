@@ -174,7 +174,21 @@ router.get("/all", verifyToken, async (req, res) => {
           data: [
             { $sort: { createdAt: -1 } },
             { $skip: skip },
-            { $limit: perPage }
+            { $limit: perPage },
+            {
+              $lookup: {
+                from: "invoices",
+                let: { companyId: "$id" },
+                pipeline: [
+                  { $match: { $expr: { $eq: ["$companyId", "$$companyId"] } } },
+                  { $sort: { issueDate: -1 } },
+                  { $limit: 1 },
+                  { $project: { _id: 0, issueDate: 1, billingPeriod: 1, status: 1, totalAmount: 1 } }
+                ],
+                as: "lastInvoice"
+              }
+            },
+            { $unwind: { path: "$lastInvoice", preserveNullAndEmptyArrays: true } }
           ],
           total: [{ $count: "count" }],
         }
@@ -301,6 +315,35 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Something went wrong while updating the company", isError: true, error })
   }
 })
+
+router.patch("/update-status/:id", verifyToken, async (req, res) => {
+  try {
+
+    const { uid } = req;
+    const { id } = req.params;
+    const { status } = req.body
+    if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+    const company = await Companies.findOneAndUpdate(
+      { id },
+      { $set: { status: status } },
+      { new: true }
+    );
+
+    if (status === "inactive") {
+      const companyUser = await Users.findOne({ companyId: id, roles: "admin" })
+      if (companyUser) {
+        await Users.findOneAndUpdate({ uid: companyUser.uid }, { $set: { status: "inactive" } })
+      }
+    }
+
+    res.status(200).json({ message: `Company ${status === "active" ? "restored" : "deactivated"} successfully`, company, isError: false });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Something went wrong while updating the company status", isError: true, error });
+  }
+});
 
 router.get("/single-with-id/:id", verifyToken, async (req, res) => {
   try {

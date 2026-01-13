@@ -46,7 +46,6 @@ router.get("/all", verifyToken, async (req, res) => {
         const match = {};
 
         if (status) match.status = status;
-        if (req.query.approvalStatus) match.approvalStatus = req.query.approvalStatus;
         if (companyId) match.companyId = companyId;
 
         // Date Filtering
@@ -156,30 +155,32 @@ router.post("/pay/:id", verifyToken, async (req, res) => {
             id: transactionId,
             companyId: invoice.companyId,
             invoiceId: invoice.id,
-            ref: getRandomRef(),
+            // ref: getRandomRef(),
             amount,
             method,
-            status: "pending", // Default to pending
+            status: "approved", // Auto-approved
             billingMonth: invoice.billingPeriod,
             remarks,
             transactionDate: date || new Date(),
-            approvedBy: null, // Pending approval
+            approvedBy: uid,
             createdBy: uid
         });
 
         await transaction.save();
 
-        // NOTE: Invoice status is NOT updated here anymore. It waits for Transaction Approval.
+        // Update Invoice Payment Details
+        invoice.amountPaid = (invoice.amountPaid || 0) + amount;
+        invoice.balanceDue = invoice.totalAmount - invoice.amountPaid;
+
+        if (invoice.balanceDue <= 0) {
+            invoice.status = 'paid';
+            invoice.balanceDue = 0; // Prevent negative
+        } else if (invoice.balanceDue < invoice.totalAmount) {
+            invoice.status = 'partiallyPaid';
+        }
 
         if (!invoice.transactionsIds) invoice.transactionsIds = [];
         invoice.transactionsIds.push(transactionId);
-
-        await invoice.save();
-
-        res.status(200).json({ message: "Payment recorded. Awaiting approval.", isError: false, invoice, transaction });
-
-        if (!invoice.transactionsIds) invoice.transactionsIds = [];
-        invoice.transactionsIds.push(transactionId); // Store transaction ID, not the doc
 
         await invoice.save();
 
@@ -273,51 +274,13 @@ router.delete("/remove/:id", verifyToken, async (req, res) => {
     }
 });
 
-// Approve Invoices
-router.post("/approve", verifyToken, async (req, res) => {
-    try {
-        const { uid } = req;
-        const { invoiceIds } = req.body;
 
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
-        if (!invoiceIds || !Array.isArray(invoiceIds) || invoiceIds.length === 0) {
-            return res.status(400).json({ message: "No invoices selected", isError: true });
-        }
-
-        await Invoices.updateMany(
-            { id: { $in: invoiceIds }, approvalStatus: "pending" },
-            {
-                $set: {
-                    approvalStatus: "approved",
-                    approvedBy: uid,
-                    approvedAt: new Date(),
-                }
-            }
-        );
-
-        res.status(200).json({ message: "Invoices approved successfully", isError: false });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Something went wrong during approval", isError: true, error });
-    }
-});
 
 // Invoice Tracker Stats
 router.get("/tracker", verifyToken, async (req, res) => {
     try {
         const startOfMonth = dayjs().startOf('month').toDate();
         const endOfMonth = dayjs().endOf('month').toDate();
-
-        const stats = await Invoices.aggregate([
-            { $match: { issueDate: { $gte: startOfMonth, $lte: endOfMonth } } },
-            {
-                $group: {
-                    _id: "$approvalStatus",
-                    count: { $sum: 1 },
-                }
-            }
-        ]);
 
         const eligibleCompanies = await Companies.countDocuments({
             status: { $ne: 'inactive' }, // Active or pending? Let's say not inactive.
@@ -335,8 +298,6 @@ router.get("/tracker", verifyToken, async (req, res) => {
 
         const tracker = {
             pendingGeneration,
-            pendingApproval: stats.find(s => s._id === 'pending')?.count || 0,
-            approved: stats.find(s => s._id === 'approved')?.count || 0,
             generatedThisMonth: generatedCount
         };
 
@@ -349,81 +310,114 @@ router.get("/tracker", verifyToken, async (req, res) => {
 });
 
 // Generate Invoices
+// Generate Invoice (Single Company)
 router.post("/generate", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        const { companyIds, mode } = req.body; // mode: 'draft' | 'send'
+        const { companyId, mode, billingPeriod, dueDate, rate: manualRate, tax: manualTax, billingBasis: manualBasis } = req.body;
 
         if (!uid) return res.status(401).json({ message: "Unauthorized", isError: true });
+        if (!companyId) return res.status(400).json({ message: "Company ID is required", isError: true });
 
-        const companies = await Companies.find({ id: { $in: companyIds } });
-        const generatedInvoices = [];
+        const company = await Companies.findOne({ id: companyId });
+        if (!company) return res.status(404).json({ message: "Company not found", isError: true });
 
-        for (const company of companies) {
-            if (company.trialEndsAt && dayjs(company.trialEndsAt).isAfter(dayjs())) {
-                continue;
-            }
+        // if (company.trialEndsAt && dayjs(company.trialEndsAt).isAfter(dayjs())) {
+        //     return res.status(400).json({ message: "Company is still in trial period", isError: true });
+        // }
 
-            let quantity = 1;
-            let rate = 100;
+        // Determine Billing Basis
+        const basis = manualBasis || company.billingBasis || 'customers';
 
-            if (company.billingBasis === 'guard') {
-                quantity = await Users.countDocuments({ companyId: company.id, roles: 'guard', status: 'active' });
-                rate = 50;
-            } else if (company.billingBasis === 'site') {
-                try { quantity = await Sites.countDocuments({ companyId: company.id }); } catch (e) { quantity = 1; }
-                rate = 200;
-            } else if (company.billingBasis === 'yearly') {
-                quantity = 1;
-                rate = 1000; // Example yearly rate, logic should perhaps be dynamic but this fits the pattern
-            } else {
-                quantity = await Customers.countDocuments({ companyId: company.id });
-                rate = 150;
-            }
-            if (quantity === 0) quantity = 1;
+        // Strategies for Quantity Calculation
+        const getQuantity = async () => {
+            if (basis === 'customers') return await Customers.countDocuments({ status: "active", companyId });
+            if (basis === 'sites') return await Sites.countDocuments({ status: "active", companyId });
+            if (basis === 'guards') return await Users.countDocuments({ status: "active", companyId, roles: { $in: ["guard"] } });
+            if (basis === 'yearly') return 1;
+            return 1;
+        };
 
-            const total = quantity * rate;
+        let quantity = await getQuantity();
 
-            const invoice = new Invoices({
-                id: getRandomId(),
-                companyId: company.id,
-                billingPeriod: dayjs().format('MMMM YYYY'),
-                billingBasis: company.billingBasis,
-                dueDate: dayjs().add(7, 'day').toDate(),
-                issueDate: new Date(),
-                rate,
-                quantity,
-                subtotal: total,
-                totalAmount: total,
-                balanceDue: total,
-                createdBy: uid,
-                status: mode === 'send' ? 'sent' : 'pending_approval',
-                approvalStatus: mode === 'send' ? 'approved' : 'pending',
-                approvedBy: mode === 'send' ? uid : null,
-                approvedAt: mode === 'send' ? new Date() : null,
-            });
+        // Rate Logic
+        let rate = 0;
+        if (basis === 'yearly') {
+            // Special Yearly Logic: Use Yearly Rate / 12
+            rate = company.yearlyRate ? (company.yearlyRate / 12) : 0;
+        } else {
+            // Use Manual Rate -> Company Rate -> Default
+            rate = manualRate ? Number(manualRate) : (company.rate || 0);
+        }
 
-            await invoice.save();
-            generatedInvoices.push(invoice);
+        // Formatting Rate to 2 decimal places if needed, but keeping as number
+        rate = Number(rate.toFixed(2));
 
-            if (mode === 'send') {
+        if (quantity === 0 && basis !== 'yearly') {
+            // Determine what to do if 0 count? 
+            // If manual rate is provided, maybe user wants to bill anyway? 
+            // For now, let's keep it 1 if explicit manual rate, else 0? 
+            // The previous logic defaulted to 1 if manualRate was present.
+            if (manualRate) quantity = 1;
+        }
+
+        const subtotal = quantity * rate;
+        const taxAmount = manualTax ? Number(manualTax) : 0;
+        const total = subtotal + taxAmount;
+
+        const invoice = new Invoices({
+            id: getRandomId(),
+            companyId: company.id,
+            billingPeriod: billingPeriod || dayjs().format('MMMM YYYY'),
+            billingBasis: basis,
+            dueDate: dueDate ? new Date(dueDate) : dayjs().add(7, 'day').toDate(),
+            issueDate: new Date(),
+            rate,
+            quantity,
+            tax: taxAmount,
+            subtotal: subtotal,
+            totalAmount: total,
+            balanceDue: total,
+            createdBy: uid,
+            status: mode === 'send' ? 'sent' : 'draft',
+        });
+
+        await invoice.save();
+
+        if (mode === 'send') {
+            try {
                 const pdfBuffer = await generateInvoicePDF(invoice, company);
                 const emailBody = `
                     <h3>Invoice #${invoice.invoiceNo}</h3>
                     <p>Dear ${company.name},</p>
                     <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
                     <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
-                    <p>Thank you.</p>
+                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
+                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
+                    <br/>
+                    <p>Thank you for your business.</p>
                 `;
-                await sendMail(company.email, `Invoice ${invoice.invoiceNo}`, emailBody, [{ filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }]);
+
+                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from GuardHouse`, emailBody, [
+                    { filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
+                ]);
+
+            } catch (mailError) {
+                console.error("Failed to send email during generation:", mailError);
+                // We should probably warn the user but the invoice is generated
+                return res.status(200).json({ message: "Invoice generated but failed to send email", isError: false, invoices: [invoice] });
             }
         }
 
-        res.status(200).json({ message: `Generated ${generatedInvoices.length} invoices.`, isError: false, count: generatedInvoices.length });
+        res.status(201).json({
+            message: `Invoice ${mode === 'send' ? 'generated & sent' : 'generated'} successfully`,
+            isError: false,
+            invoices: [invoice] // Keep array format for frontend compatibility if needed, or just change frontend
+        });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Error generating invoices", isError: true, error: error.message });
+        res.status(500).json({ message: "Error generating invoice", isError: true, error: error.message });
     }
 });
 
