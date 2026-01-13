@@ -10,6 +10,12 @@ const { verifyToken } = require("../middlewares/auth");
 const { getRandomId, getRandomRef, cleanObjectValues } = require("../config/global");
 const sendMail = require("../utils/sendMail");
 const dayjs = require("dayjs");
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 const generateInvoicePDF = require("../utils/invoicePdfGenerator");
 
 // Create a new invoice manually
@@ -37,7 +43,7 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate } = req.query;
+        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate, timeZone = "UTC" } = cleanObjectValues(req.query);
 
         pageNo = Number(pageNo);
         perPage = Number(perPage);
@@ -51,8 +57,8 @@ router.get("/all", verifyToken, async (req, res) => {
         // Date Filtering
         if (startDate || endDate) {
             match.issueDate = {};
-            if (startDate) match.issueDate.$gte = new Date(startDate);
-            if (endDate) match.issueDate.$lte = new Date(endDate);
+            if (startDate) match.issueDate.$gte = dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate();
+            if (endDate) match.issueDate.$lte = dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate();
         }
 
         const pipeline = [
@@ -158,7 +164,7 @@ router.post("/pay/:id", verifyToken, async (req, res) => {
             // ref: getRandomRef(),
             amount,
             method,
-            status: "approved", // Auto-approved
+            status: "successfully", // Auto-approved
             billingMonth: invoice.billingPeriod,
             remarks,
             transactionDate: date || new Date(),
@@ -279,26 +285,52 @@ router.delete("/remove/:id", verifyToken, async (req, res) => {
 // Invoice Tracker Stats
 router.get("/tracker", verifyToken, async (req, res) => {
     try {
-        const startOfMonth = dayjs().startOf('month').toDate();
-        const endOfMonth = dayjs().endOf('month').toDate();
+        let { startDate, endDate, timeZone = "UTC" } = cleanObjectValues(req.query);
 
+        const start = startDate ? dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate() : dayjs().tz(timeZone).startOf('month').utc(true).toDate();
+        const end = endDate ? dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate() : dayjs().tz(timeZone).endOf('month').utc(true).toDate();
+
+        // 1. Invoices stats in period
+        const invoiceStats = await Invoices.aggregate([
+            { $match: { issueDate: { $gte: start, $lte: end } } },
+            {
+                $group: {
+                    _id: null,
+                    count: { $sum: 1 },
+                    totalAmount: { $sum: "$totalAmount" },
+                    totalPending: { $sum: "$balanceDue" }
+                }
+            }
+        ]);
+
+        // 2. Transactions stats in period
+        const transactionStats = await Transactions.aggregate([
+            { $match: { transactionDate: { $gte: start, $lte: end }, status: "successfully" } },
+            {
+                $group: {
+                    _id: null,
+                    count: { $sum: 1 },
+                    totalReceived: { $sum: "$amount" }
+                }
+            }
+        ]);
+
+        // 3. Billable companies (for pending generation)
         const eligibleCompanies = await Companies.countDocuments({
-            status: { $ne: 'inactive' }, // Active or pending? Let's say not inactive.
+            status: { $ne: 'inactive' },
             $or: [
                 { trialEndsAt: { $lt: new Date() } },
                 { trialEndsAt: null }
             ]
         });
 
-        const generatedCount = await Invoices.countDocuments({
-            issueDate: { $gte: startOfMonth, $lte: endOfMonth }
-        });
-
-        const pendingGeneration = Math.max(0, eligibleCompanies - generatedCount);
-
         const tracker = {
-            pendingGeneration,
-            generatedThisMonth: generatedCount
+            totalInvoices: invoiceStats[0]?.count || 0,
+            invoicesTotalAmount: invoiceStats[0]?.totalAmount || 0,
+            totalTransactions: transactionStats[0]?.count || 0,
+            amountReceived: transactionStats[0]?.totalReceived || 0,
+            amountPending: invoiceStats[0]?.totalPending || 0,
+            eligibleCompanies // This helps show how many companies *should* have invoices
         };
 
         res.status(200).json({ message: "Tracker data fetched", isError: false, tracker });

@@ -143,17 +143,11 @@ router.get("/all", verifyToken, async (req, res) => {
     const { uid } = req;
     if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-    let { status, name, registrationNo, email, country, province, city, perPage = 10, pageNo = 1, } = cleanObjectValues(req.query);
+    let { status, name, registrationNo, email, country, province, city, search, perPage = 10, pageNo = 1, } = cleanObjectValues(req.query);
 
     perPage = Number(perPage);
     pageNo = Number(pageNo);
     const skip = (pageNo - 1) * perPage;
-
-    const now = new Date();
-    await Companies.updateMany(
-      { paymentStatus: "paid", expirePackage: { $lte: now } },
-      { $set: { paymentStatus: "unpaid", expirePackage: null } }
-    );
 
     // Base Match Filter
     const match = {};
@@ -162,6 +156,14 @@ router.get("/all", verifyToken, async (req, res) => {
     if (name) match.name = { $regex: name, $options: "i" };
     if (registrationNo) match.registrationNo = { $regex: registrationNo, $options: "i" };
     if (email) match.email = { $regex: email, $options: "i" };
+
+    if (search) {
+      match.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { registrationNo: { $regex: search, $options: "i" } },
+      ];
+    }
 
     if (country && country !== "null") match.country = country;
     if (province && province !== "null") match.province = province;
@@ -188,7 +190,47 @@ router.get("/all", verifyToken, async (req, res) => {
                 as: "lastInvoice"
               }
             },
-            { $unwind: { path: "$lastInvoice", preserveNullAndEmptyArrays: true } }
+            { $unwind: { path: "$lastInvoice", preserveNullAndEmptyArrays: true } },
+            {
+              $lookup: {
+                from: "users",
+                let: { companyId: "$id" },
+                pipeline: [
+                  { $match: { $expr: { $and: [{ $eq: ["$companyId", "$$companyId"] }, { $in: ["guard", "$roles"] }] } } },
+                  { $count: "count" }
+                ],
+                as: "guardCount"
+              }
+            },
+            {
+              $lookup: {
+                from: "customers",
+                let: { companyId: "$id" },
+                pipeline: [
+                  { $match: { $expr: { $eq: ["$companyId", "$$companyId"] } } },
+                  { $count: "count" }
+                ],
+                as: "customerCount"
+              }
+            },
+            {
+              $lookup: {
+                from: "sites",
+                let: { companyId: "$id" },
+                pipeline: [
+                  { $match: { $expr: { $eq: ["$companyId", "$$companyId"] } } },
+                  { $count: "count" }
+                ],
+                as: "siteCount"
+              }
+            },
+            {
+              $addFields: {
+                totalGuard: { $ifNull: [{ $arrayElemAt: ["$guardCount.count", 0] }, 0] },
+                totalCustomer: { $ifNull: [{ $arrayElemAt: ["$customerCount.count", 0] }, 0] },
+                totalSite: { $ifNull: [{ $arrayElemAt: ["$siteCount.count", 0] }, 0] }
+              }
+            }
           ],
           total: [{ $count: "count" }],
         }

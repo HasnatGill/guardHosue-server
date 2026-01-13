@@ -8,7 +8,7 @@ const Shifts = require("../models/shifts");
 const Users = require("../models/auth");
 const Invoices = require("../models/invoices");
 const Companies = require("../models/companies");
-const { getRandomId } = require("../config/global");
+const { getRandomId, cleanObjectValues } = require("../config/global");
 
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
@@ -102,7 +102,7 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate } = req.query;
+        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate, timeZone = "UTC" } = cleanObjectValues(req.query);
 
         pageNo = Number(pageNo);
         perPage = Number(perPage);
@@ -115,14 +115,16 @@ router.get("/all", verifyToken, async (req, res) => {
 
         if (startDate || endDate) {
             match.transactionDate = {};
-            if (startDate) match.transactionDate.$gte = new Date(startDate);
-            if (endDate) match.transactionDate.$lte = new Date(endDate);
+            if (startDate) match.transactionDate.$gte = dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate();
+            if (endDate) match.transactionDate.$lte = dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate();
         }
 
         const pipeline = [
             { $match: match },
             { $lookup: { from: "companies", localField: "companyId", foreignField: "id", as: "company" } },
             { $unwind: { path: "$company", preserveNullAndEmptyArrays: true } },
+            { $lookup: { from: "invoices", localField: "invoiceId", foreignField: "id", as: "invoice" } },
+            { $unwind: { path: "$invoice", preserveNullAndEmptyArrays: true } },
         ];
 
         if (search) {
@@ -131,7 +133,8 @@ router.get("/all", verifyToken, async (req, res) => {
                     $or: [
                         { ref: { $regex: search, $options: "i" } },
                         { "company.name": { $regex: search, $options: "i" } },
-                        { "company.registrationNo": { $regex: search, $options: "i" } }
+                        { "company.registrationNo": { $regex: search, $options: "i" } },
+                        { "invoice.invoiceNo": { $regex: search, $options: "i" } }
                     ]
                 }
             });
