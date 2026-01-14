@@ -30,7 +30,7 @@ router.post("/generate", verifyToken, async (req, res) => {
         const company = await Companies.findOne({ id: companyId });
         if (!company) return res.status(404).json({ message: "Company not found", isError: true });
 
-        const basis = manualBasis || company.billingBasis || 'customers';
+        const basis = billingBasis || company.billingBasis || 'customers';
 
         const getQuantity = async () => {
             if (basis === 'customers') return await Customers.countDocuments({ status: "active", companyId });
@@ -50,7 +50,7 @@ router.post("/generate", verifyToken, async (req, res) => {
         const taxAmount = manualTax ? Number(manualTax) : 0;
         const total = subtotal + taxAmount;
 
-        const invoice = new Invoices({
+        const invoice = {
             id: getRandomId(), companyId: company.id, billingPeriod, billingBasis,
             dueDate,
             issueDate: new Date(),
@@ -61,13 +61,41 @@ router.post("/generate", verifyToken, async (req, res) => {
             balanceDue: total,
             createdBy: uid,
             status: mode === 'send' ? 'sent' : 'draft',
-        });
+        };
 
-        await invoice.save();
+        console.log(invoice)
+
+        const invoiceDoc = new Invoices(invoice);
+
+        await invoiceDoc.save();
 
         if (mode === 'send') {
             try {
-                const pdfBuffer = await generateInvoicePDF(invoice, company);
+                const pdfBuffer = await generateInvoicePDF(invoiceDoc, company);
+                const emailBody = `
+                    <h3>Invoice #${invoice.invoiceNo}</h3>
+                    <p>Dear ${company.name},</p>
+                    <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
+                    <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
+                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
+                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
+                    <br/>
+                    <p>Thank you for your business.</p>
+                `;
+
+                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from GuardHouse`, emailBody, [
+                    { filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
+                ]);
+            } catch (mailError) {
+                console.error("Failed to send email during generation:", mailError);
+                // We should probably warn the user but the invoice is generated
+                return res.status(200).json({ message: "Invoice generated but failed to send email", isError: false, invoices: [invoiceDoc] });
+            }
+        }
+
+        if (mode === 'send') {
+            try {
+                const pdfBuffer = await generateInvoicePDF(invoiceDoc, company);
                 const emailBody = `
                     <h3>Invoice #${invoice.invoiceNo}</h3>
                     <p>Dear ${company.name},</p>
