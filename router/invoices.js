@@ -19,24 +19,88 @@ dayjs.extend(timezone);
 const generateInvoicePDF = require("../utils/invoicePdfGenerator");
 
 // Create a new invoice manually
-router.post("/add", verifyToken, async (req, res) => {
+router.post("/generate", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+        const { companyId, mode, billingPeriod, dueDate, tax: manualTax, billingBasis } = req.body;
 
-        const formData = req.body;
-        const invoice = new Invoices({ ...formData, id: getRandomId(), createdBy: uid });
+        if (!uid) return res.status(401).json({ message: "Unauthorized", isError: true });
+        if (!companyId) return res.status(400).json({ message: "Company ID is required", isError: true });
+
+        const company = await Companies.findOne({ id: companyId });
+        if (!company) return res.status(404).json({ message: "Company not found", isError: true });
+
+        const basis = manualBasis || company.billingBasis || 'customers';
+
+        const getQuantity = async () => {
+            if (basis === 'customers') return await Customers.countDocuments({ status: "active", companyId });
+            if (basis === 'sites') return await Sites.countDocuments({ status: "active", companyId });
+            if (basis === 'guards') return await Users.countDocuments({ status: "active", companyId, roles: { $in: ["guard"] } });
+            if (basis === 'yearly') return 1;
+            return 1;
+        };
+
+        let quantity = await getQuantity();
+
+        let rate = company.rate || 0;
+        rate = Number(rate.toFixed(2));
+
+
+        const subtotal = quantity * rate;
+        const taxAmount = manualTax ? Number(manualTax) : 0;
+        const total = subtotal + taxAmount;
+
+        const invoice = new Invoices({
+            id: getRandomId(), companyId: company.id, billingPeriod, billingBasis,
+            dueDate,
+            issueDate: new Date(),
+            rate, quantity,
+            tax: taxAmount,
+            subtotal,
+            totalAmount: total,
+            balanceDue: total,
+            createdBy: uid,
+            status: mode === 'send' ? 'sent' : 'draft',
+        });
 
         await invoice.save();
 
-        res.status(201).json({ message: "Invoice created successfully", isError: false, invoice });
+        if (mode === 'send') {
+            try {
+                const pdfBuffer = await generateInvoicePDF(invoice, company);
+                const emailBody = `
+                    <h3>Invoice #${invoice.invoiceNo}</h3>
+                    <p>Dear ${company.name},</p>
+                    <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
+                    <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
+                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
+                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
+                    <br/>
+                    <p>Thank you for your business.</p>
+                `;
+
+                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from GuardHouse`, emailBody, [
+                    { filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
+                ]);
+
+            } catch (mailError) {
+                console.error("Failed to send email during generation:", mailError);
+                // We should probably warn the user but the invoice is generated
+                return res.status(200).json({ message: "Invoice generated but failed to send email", isError: false, invoices: [invoice] });
+            }
+        }
+
+        res.status(201).json({
+            message: `Invoice ${mode === 'send' ? 'generated & sent' : 'generated'} successfully`,
+            isError: false,
+            invoices: [invoice] // Keep array format for frontend compatibility if needed, or just change frontend
+        });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Something went wrong while creating the invoice", isError: true, error });
+        res.status(500).json({ message: "Error generating invoice", isError: true, error: error.message });
     }
 });
-
 // Get all invoices with filters
 router.get("/all", verifyToken, async (req, res) => {
     try {
@@ -377,116 +441,5 @@ router.get("/tracker", verifyToken, async (req, res) => {
     }
 });
 
-// Generate Invoices
-// Generate Invoice (Single Company)
-router.post("/generate", verifyToken, async (req, res) => {
-    try {
-        const { uid } = req;
-        const { companyId, mode, billingPeriod, dueDate, rate: manualRate, tax: manualTax, billingBasis: manualBasis } = req.body;
-
-        if (!uid) return res.status(401).json({ message: "Unauthorized", isError: true });
-        if (!companyId) return res.status(400).json({ message: "Company ID is required", isError: true });
-
-        const company = await Companies.findOne({ id: companyId });
-        if (!company) return res.status(404).json({ message: "Company not found", isError: true });
-
-        // if (company.trialEndsAt && dayjs(company.trialEndsAt).isAfter(dayjs())) {
-        //     return res.status(400).json({ message: "Company is still in trial period", isError: true });
-        // }
-
-        // Determine Billing Basis
-        const basis = manualBasis || company.billingBasis || 'customers';
-
-        // Strategies for Quantity Calculation
-        const getQuantity = async () => {
-            if (basis === 'customers') return await Customers.countDocuments({ status: "active", companyId });
-            if (basis === 'sites') return await Sites.countDocuments({ status: "active", companyId });
-            if (basis === 'guards') return await Users.countDocuments({ status: "active", companyId, roles: { $in: ["guard"] } });
-            if (basis === 'yearly') return 1;
-            return 1;
-        };
-
-        let quantity = await getQuantity();
-
-        // Rate Logic
-        let rate = 0;
-        if (basis === 'yearly') {
-            // Special Yearly Logic: Use Yearly Rate / 12
-            rate = company.yearlyRate ? (company.yearlyRate / 12) : 0;
-        } else {
-            // Use Manual Rate -> Company Rate -> Default
-            rate = manualRate ? Number(manualRate) : (company.rate || 0);
-        }
-
-        // Formatting Rate to 2 decimal places if needed, but keeping as number
-        rate = Number(rate.toFixed(2));
-
-        if (quantity === 0 && basis !== 'yearly') {
-            // Determine what to do if 0 count? 
-            // If manual rate is provided, maybe user wants to bill anyway? 
-            // For now, let's keep it 1 if explicit manual rate, else 0? 
-            // The previous logic defaulted to 1 if manualRate was present.
-            if (manualRate) quantity = 1;
-        }
-
-        const subtotal = quantity * rate;
-        const taxAmount = manualTax ? Number(manualTax) : 0;
-        const total = subtotal + taxAmount;
-
-        const invoice = new Invoices({
-            id: getRandomId(),
-            companyId: company.id,
-            billingPeriod: billingPeriod || dayjs().format('MMMM YYYY'),
-            billingBasis: basis,
-            dueDate: dueDate ? new Date(dueDate) : dayjs().add(7, 'day').toDate(),
-            issueDate: new Date(),
-            rate,
-            quantity,
-            tax: taxAmount,
-            subtotal: subtotal,
-            totalAmount: total,
-            balanceDue: total,
-            createdBy: uid,
-            status: mode === 'send' ? 'sent' : 'draft',
-        });
-
-        await invoice.save();
-
-        if (mode === 'send') {
-            try {
-                const pdfBuffer = await generateInvoicePDF(invoice, company);
-                const emailBody = `
-                    <h3>Invoice #${invoice.invoiceNo}</h3>
-                    <p>Dear ${company.name},</p>
-                    <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
-                    <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
-                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
-                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
-                    <br/>
-                    <p>Thank you for your business.</p>
-                `;
-
-                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from GuardHouse`, emailBody, [
-                    { filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
-                ]);
-
-            } catch (mailError) {
-                console.error("Failed to send email during generation:", mailError);
-                // We should probably warn the user but the invoice is generated
-                return res.status(200).json({ message: "Invoice generated but failed to send email", isError: false, invoices: [invoice] });
-            }
-        }
-
-        res.status(201).json({
-            message: `Invoice ${mode === 'send' ? 'generated & sent' : 'generated'} successfully`,
-            isError: false,
-            invoices: [invoice] // Keep array format for frontend compatibility if needed, or just change frontend
-        });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Error generating invoice", isError: true, error: error.message });
-    }
-});
 
 module.exports = router;

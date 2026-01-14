@@ -332,22 +332,113 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     const company = await Companies.findOne({ id });
     if (!company) { return res.status(404).json({ message: "Company not found" }) }
 
+    let adminUser = await Users.findOne({ companyId: id, roles: "admin" });
+
     if (company.email !== formData.email) {
       const existCompany = await Companies.findOne({ email: formData.email })
-      const adminExist = await Users.findOne({ email: formData.email })
-      if (adminExist) { return res.status(409).json({ message: "An account with this email already exists.", isError: true }); }
+      const existUser = await Users.findOne({ email: formData.email })
+      if (existUser) { return res.status(409).json({ message: "An account with this email already exists.", isError: true }); }
       if (existCompany) { return res.status(409).json({ message: "This email is already associated with another company.", isError: true }); }
     }
 
     const newData = { ...formData }
 
-    // Recalculate trial end if weeks changed
-    if (newData.trialPeriodWeeks && newData.trialPeriodWeeks != company.trialPeriodWeeks) {
-      newData.trialEndsAt = dayjs().add(newData.trialPeriodWeeks, 'week').toDate();
-    }
-
     const updatedCompany = await Companies.findOneAndUpdate({ id }, newData, { new: true })
     if (!updatedCompany) { return res.status(404).json({ message: "Company didn't update" }) }
+
+    if (adminUser && adminUser.email !== newData.email) {
+
+      adminUser.email = formData.email
+      await adminUser.save()
+
+      const token = getRandomId();
+      const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${formData.email}`;
+      const bodyHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Set Your Password</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+          
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#BF0603; padding:20px; text-align:center;">
+              <h1 style="margin:0; color:#ffffff; font-size:22px;">
+                Account Setup
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:30px;">
+              <p style="font-size:16px; color:#333333; margin:0 0 15px;">
+                Hello Admin,
+              </p>
+
+              <p style="font-size:15px; color:#555555; line-height:1.6; margin:0 0 25px;">
+                Your account has been created successfully.  
+                Please click the button below to set your password and activate your account.
+              </p>
+
+              <!-- Button -->
+              <table cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td align="center">
+                    <a href="${verifyUrl}"
+                      style="
+                        display:inline-block;
+                        padding:12px 28px;
+                        background-color:##BF0603;
+                        color:#ffffff;
+                        text-decoration:none;
+                        font-size:15px;
+                        font-weight:bold;
+                        border-radius:5px;
+                      ">
+                      Set Password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="font-size:14px; color:#777777; margin:25px 0 0; line-height:1.6;">
+                If you did not request this, please ignore this email.  
+                This link will expire for security reasons.
+              </p>
+
+              <p style="font-size:14px; color:#555555; margin:25px 0 0;">
+                Regards,<br />
+                <strong>Security Matrix AI Team</strong>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f1f3f5; padding:15px; text-align:center;">
+              <p style="font-size:12px; color:#999999; margin:0;">
+                © ${dayjs().toDate().getFullYear()} Security Matrix AI. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`
+      await sendMail(formData.email, "Set admin profile password for Security Matrix AI", bodyHtml);
+    }
+
+
 
 
     res.status(200).json({ message: "A company has been successfully updated", isError: false, company: updatedCompany })
@@ -437,52 +528,6 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Something went wrong while deleting the company", isError: true, error })
   }
 })
-
-// router.get("/cards-data", verifyToken, async (req, res) => {
-//     try {
-
-//         const { uid } = req;
-//         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
-
-//         const { status } = req.query;
-
-//         // COMMON FILTERS
-//         // const companyFilter = status ? { status } : {};
-
-//         const guardFilter = { roles: { $in: ["guard"] } };
-//         if (status) guardFilter.status = status;
-
-//         // === Total Count ===
-//         const [companyCount, transactionCount, guardCount, customerCount] = await Promise.all([
-//             Companies.countDocuments(),
-//             Transactions.countDocuments(),
-//             Users.countDocuments(guardFilter),
-//             Customers.countDocuments()
-//         ]);
-
-//         // === Increasing Count (Last 30 days) ===
-//         const lastMonth = new Date();
-//         lastMonth.setDate(lastMonth.getDate() - 30);
-
-//         const [companyIncrease, transactionIncrease, guardIncrease, customerIncrease] = await Promise.all([
-//             Companies.countDocuments({ createdAt: { $gte: lastMonth } }),
-//             Transactions.countDocuments({ createdAt: { $gte: lastMonth } }),
-//             Users.countDocuments({ createdAt: { $gte: lastMonth }, roles: { $in: ["guard"] }, }),
-//             Customers.countDocuments({ createdAt: { $gte: lastMonth } }),
-//         ]);
-
-//         return res.status(200).json({
-//             company: { total: companyCount, increasing: companyIncrease },
-//             transactions: { total: transactionCount, increasing: transactionIncrease },
-//             guards: { total: guardCount, increasing: guardIncrease },
-//             customers: { total: customerCount, increasing: customerIncrease },
-//         });
-
-//     } catch (error) {
-//         console.error("Cards-data error:", error);
-//         res.status(500).json({ message: "Failed to fetch dashboard cards", error: error.message, });
-//     }
-// });
 
 router.get("/cards-data", verifyToken, async (req, res) => {
   try {

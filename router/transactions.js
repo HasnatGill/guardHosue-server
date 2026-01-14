@@ -102,7 +102,7 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate, timeZone = "UTC" } = cleanObjectValues(req.query);
+        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate, timeZone = "UTC", ref } = cleanObjectValues(req.query);
 
         pageNo = Number(pageNo);
         perPage = Number(perPage);
@@ -112,6 +112,7 @@ router.get("/all", verifyToken, async (req, res) => {
 
         if (status) match.status = status;
         if (companyId) match.companyId = companyId;
+        if (ref) match.ref = ref;
 
         if (startDate || endDate) {
             match.transactionDate = {};

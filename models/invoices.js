@@ -10,7 +10,7 @@ const invoicesSchema = new Schema({
     issueDate: { type: Date, default: Date.now },
     dueDate: { type: Date, required: true },
     billingPeriod: { type: String, required: true },
-    billingBasis: { type: String, enum: ['customers', 'sites', 'guards'] },
+    billingBasis: { type: String, enum: ['customers', 'sites', 'guards', "yearly"] },
     rate: { type: Number, required: true },
     quantity: { type: Number, required: true },
     subtotal: { type: Number, required: true },
