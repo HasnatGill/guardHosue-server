@@ -184,8 +184,8 @@ function generateFooter(doc, invoice) {
     const netAfterDiscount = invoice.subtotal - (invoice.discount || 0);
 
     doc.text(`Standard ${vatRate.toFixed(2)}% (${vatRate.toFixed(2)}%)`, 45, yVat);
-    doc.text(`£${netAfterDiscount.toFixed(2)}`, 200, yVat, { align: "right", width: 40 });
-    doc.text(`£${invoice.tax.toFixed(2)}`, 245, yVat, { align: "right", width: 40 });
+    doc.text(`${netAfterDiscount.toFixed(2)}`, 200, yVat, { align: "right", width: 40 });
+    doc.text(`${invoice.tax.toFixed(2)}`, 245, yVat, { align: "right", width: 40 });
 
 
     // Totals Table (Right)
@@ -233,7 +233,7 @@ function generateFooter(doc, invoice) {
     doc.font("Helvetica-Bold");
     doc.text("TOTAL DUE", labelX, currentY + 5);
     // Assuming totalAmount in invoice object is the final final total including previous balance
-    doc.text(`£${invoice.totalAmount.toFixed(2)}`, valX - 40, currentY + 5, { align: "right", width: 40 });
+    doc.text(`${invoice.totalAmount.toFixed(2)}`, valX - 40, currentY + 5, { align: "right", width: 40 });
 
 
     // Notes and Terms

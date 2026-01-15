@@ -45,16 +45,16 @@ const getInvoiceEmailBody = (company, invoice) => {
                     </tr>
                     <tr>
                         <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold;">Total Amount:</td>
-                        <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold; text-align: right; color: #2c3e50;">$${Number(invoice.totalAmount).toFixed(2)}</td>
+                        <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold; text-align: right; color: #2c3e50;">${Number(invoice.totalAmount).toFixed(2)}</td>
                     </tr>
                     <tr>
                         <td style="padding: 8px 0; font-weight: bold; color: #d32f2f;">Balance Due:</td>
-                        <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #d32f2f;">$${Number(invoice.balanceDue).toFixed(2)}</td>
+                        <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #d32f2f;">${Number(invoice.balanceDue).toFixed(2)}</td>
                     </tr>
                 </table>
             </div>
 
-            <p>If you have any questions regarding this invoice, please do not hesitate to contact us at <a href="mailto:contact@securitymatrixai.com" style="color: #3498db; text-decoration: none;">contact@securitymatrix.ai</a>.</p>
+            <p>If you have any questions regarding this invoice, please do not hesitate to contact us at <a href="mailto:contact@securitymatrixai.com" style="color: #3498db; text-decoration: none;">contact@securitymatrixai.com</a>.</p>
             
             <br/>
             <p style="font-size: 0.9em; color: #7f8c8d;">
