@@ -3,6 +3,9 @@ const Companies = require("../models/companies");
 const Transactions = require("../models/Transactions");
 const Users = require("../models/auth");
 const Customers = require("../models/customers")
+const Sites = require("../models/sites");
+const Shifts = require("../models/shifts");
+const Invoices = require("../models/invoices");
 const { verifyToken } = require("../middlewares/auth");
 const { getRandomId, getRandomRef, cleanObjectValues } = require("../config/global");
 const sendMail = require("../utils/sendMail");
@@ -503,25 +506,31 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
     const { id } = req.params
     if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-    const company = await Companies.findOne({ id }).lean()
+    // Find company to ensure it exists and to get details potentially needed
+    const company = await Companies.findOne({ id }).lean();
+    if (!company) {
+      return res.status(404).json({ message: "Company not found", isError: true });
+    }
 
-    const user = await Users.findOne({ email: company.email }).lean()
+    // Find the admin user (usually the one with the same email as the company)
+    const adminUser = await Users.findOne({ email: company.email, companyId: id }).lean();
 
-    const userUpdated = await Users.findOneAndUpdate(
-      { uid: user.uid },
-      { $set: { status: "inactive" } },
-      { new: true }
-    )
+    // Delete all related data
+    await Promise.all([
+      Companies.deleteOne({ id }),
+      Users.deleteMany({ companyId: id }),
+      Customers.deleteMany({ companyId: id }),
+      Sites.deleteMany({ companyId: id }),
+      Shifts.deleteMany({ companyId: id }),
+      Transactions.deleteMany({ companyId: id }),
+      Invoices.deleteMany({ companyId: id })
+    ]);
 
-    const companyUpdated = await Companies.findOneAndUpdate(
-      { id },
-      { $set: { status: "inactive" } },
-      { new: true }
-    )
+    if (adminUser) {
+      req.io.emit('account_block', { info: { uid: adminUser.uid, companyId: id }, type: 'block', message: `Your account has been deactivated by the Super Admin.` });
+    }
 
-    req.io.emit('account_block', { info: { uid: userUpdated.uid, companyId: companyUpdated.id }, type: 'block', message: `Your account has been deactivated by the Super Admin.` });
-
-    res.status(200).json({ message: "The company has been successfully deleted", isError: false })
+    res.status(200).json({ message: "The company and all related data has been successfully deleted", isError: false })
 
   } catch (error) {
     console.error(error)

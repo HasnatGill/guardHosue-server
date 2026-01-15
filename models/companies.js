@@ -10,7 +10,7 @@ const schema = new Schema({
     country: { type: Schema.Types.Mixed, required: true, default: "{}" },
     province: { type: String, required: true, trim: true, },
     city: { type: String, required: true, trim: true, },
-    zipCode: { type: String, required: true, default: "", trim: true },
+    zipCode: { type: String, required: false, default: "", trim: true },
     address: { type: String, required: false, default: "", trim: true },
     street_address: { type: String, required: false, default: "", trim: true },
     street_address_1: { type: String, required: false, default: "", trim: true },
@@ -22,7 +22,9 @@ const schema = new Schema({
     rate: { type: Number, default: 0 },
     yearlyRate: { type: Number, default: 0 },
     freeTrial: { type: Boolean, default: true },
-    trialEndsAt: { type: Date, default: null },
+    trialStartDate: { type: Date, default: null },
+    trialEndDate: { type: Date, default: null },
+    // trialEndsAt: { type: Date, default: null }, // Deprecated in favor of Range
 
     createdBy: { type: String, required: true, default: "" },
 }, { timestamps: true })

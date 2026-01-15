@@ -7,7 +7,7 @@ const Users = require("../models/auth");
 const Customers = require("../models/customers");
 const Sites = require("../models/sites");
 const { verifyToken } = require("../middlewares/auth");
-const { getRandomId, getRandomRef, cleanObjectValues } = require("../config/global");
+const { getRandomId, cleanObjectValues } = require("../config/global");
 const sendMail = require("../utils/sendMail");
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
@@ -17,6 +17,55 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const generateInvoicePDF = require("../utils/invoicePdfGenerator");
+
+const getInvoiceEmailBody = (company, invoice) => {
+    return `
+        <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+            <div style="border-bottom: 2px solid #eee; padding-bottom: 20px; margin-bottom: 20px;">
+                <h2 style="color: #2c3e50; margin: 0;">New Incoming Invoice</h2>
+                <p style="margin: 5px 0 0; color: #7f8c8d;">Security Matrix AI</p>
+            </div>
+
+            <p>Dear ${company.name},</p>
+            <p>Please find attached your invoice for <strong>${dayjs(invoice.billingPeriod).format("MMMM YYYY")}</strong>.</p>
+            
+            <div style="background-color: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 5px; padding: 20px; margin: 20px 0;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #7f8c8d;">Invoice Number:</td>
+                        <td style="padding: 8px 0; font-weight: bold; text-align: right;">${invoice.invoiceNo}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #7f8c8d;">Invoice Date:</td>
+                        <td style="padding: 8px 0; font-weight: bold; text-align: right;">${new Date(invoice.issueDate).toLocaleDateString()}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #7f8c8d;">Due Date:</td>
+                        <td style="padding: 8px 0; font-weight: bold; text-align: right;">${new Date(invoice.dueDate).toLocaleDateString()}</td>
+                    </tr>
+                    <tr>
+                        <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold;">Total Amount:</td>
+                        <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold; text-align: right; color: #2c3e50;">$${Number(invoice.totalAmount).toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; font-weight: bold; color: #d32f2f;">Balance Due:</td>
+                        <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #d32f2f;">$${Number(invoice.balanceDue).toFixed(2)}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <p>If you have any questions regarding this invoice, please do not hesitate to contact us at <a href="mailto:contact@securitymatrixai.com" style="color: #3498db; text-decoration: none;">contact@securitymatrix.ai</a>.</p>
+            
+            <br/>
+            <p style="font-size: 0.9em; color: #7f8c8d;">
+                Thank you for your business,<br/>
+                <strong>Security Matrix AI</strong><br/>
+                Suite 12 Fountain House, Fountain Lane<br/>
+                Oldbury, B69 3BH, United Kingdom
+            </p>
+        </div>
+    `;
+};
 
 // Create a new invoice manually
 router.post("/generate", verifyToken, async (req, res) => {
@@ -45,25 +94,61 @@ router.post("/generate", verifyToken, async (req, res) => {
         let rate = company.rate || 0;
         rate = Number(rate.toFixed(2));
 
+        // Free Trial Calculation
+        let discount = 0;
+        if (company.trialStartDate && company.trialEndDate && billingPeriod) {
+            // Parse billing period string (e.g. "January 2024")
+            const periodDate = dayjs(billingPeriod, "MMMM YYYY");
+            if (periodDate.isValid()) {
+                const startOfMonth = periodDate.startOf('month');
+                const endOfMonth = periodDate.endOf('month');
+
+                const trialStart = dayjs(company.trialStartDate);
+                const trialEnd = dayjs(company.trialEndDate);
+
+                // Calculate Overlap
+                const overlapStart = trialStart.isAfter(startOfMonth) ? trialStart : startOfMonth;
+                const overlapEnd = trialEnd.isBefore(endOfMonth) ? trialEnd : endOfMonth;
+
+                if (overlapStart.isBefore(overlapEnd) || overlapStart.isSame(overlapEnd, 'day')) {
+                    const overlapDays = overlapEnd.diff(overlapStart, 'day') + 1;
+                    const daysInMonth = endOfMonth.date();
+                    const totalCost = rate * quantity;
+                    discount = (totalCost / daysInMonth) * overlapDays;
+                }
+            }
+        }
+
+        const previousInvoices = await Invoices.find({
+            companyId: company.id,
+            status: { $in: ['draft', 'sent', 'partiallyPaid'] },
+            id: { $ne: req.body.invoiceId } // Just in case, though usually manual gen doesn't send ID
+        });
+
+        const previousBalance = previousInvoices.reduce((sum, inv) => sum + (inv.balanceDue || 0), 0);
 
         const subtotal = quantity * rate;
-        const taxAmount = manualTax ? Number(manualTax) : 0;
-        const total = subtotal + taxAmount;
+        const netAfterDiscount = Math.max(0, subtotal - discount); // valid taxable amount
+
+        // const taxAmount = manualTax ? Number(manualTax) : (netAfterDiscount * 0.20); // Default 20% if not manual? .
+
+        const finalTax = manualTax ? Number(manualTax) : 0;
+        const total = netAfterDiscount + finalTax + previousBalance;
 
         const invoice = {
             id: getRandomId(), companyId: company.id, billingPeriod, billingBasis,
             dueDate,
             issueDate: new Date(),
             rate, quantity,
-            tax: taxAmount,
+            tax: finalTax,
             subtotal,
+            discount,
+            previousBalance,
             totalAmount: total,
-            balanceDue: total,
+            balanceDue: total, // Assuming no immediate payment
             createdBy: uid,
             status: mode === 'send' ? 'sent' : 'draft',
         };
-
-        console.log(invoice)
 
         const invoiceDoc = new Invoices(invoice);
 
@@ -72,49 +157,14 @@ router.post("/generate", verifyToken, async (req, res) => {
         if (mode === 'send') {
             try {
                 const pdfBuffer = await generateInvoicePDF(invoiceDoc, company);
-                const emailBody = `
-                    <h3>Invoice #${invoice.invoiceNo}</h3>
-                    <p>Dear ${company.name},</p>
-                    <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
-                    <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
-                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
-                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
-                    <br/>
-                    <p>Thank you for your business.</p>
-                `;
+                const emailBody = getInvoiceEmailBody(company, invoiceDoc);
 
-                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from GuardHouse`, emailBody, [
+                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from Security Matrix AI`, emailBody, [
                     { filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
                 ]);
             } catch (mailError) {
                 console.error("Failed to send email during generation:", mailError);
-                // We should probably warn the user but the invoice is generated
                 return res.status(200).json({ message: "Invoice generated but failed to send email", isError: false, invoices: [invoiceDoc] });
-            }
-        }
-
-        if (mode === 'send') {
-            try {
-                const pdfBuffer = await generateInvoicePDF(invoiceDoc, company);
-                const emailBody = `
-                    <h3>Invoice #${invoice.invoiceNo}</h3>
-                    <p>Dear ${company.name},</p>
-                    <p>Please find attached your invoice for ${invoice.billingPeriod}.</p>
-                    <p><strong>Total Amount:</strong> $${invoice.totalAmount}</p>
-                    <p><strong>Balance Due:</strong> $${invoice.balanceDue}</p>
-                    <p>Due Date: ${new Date(invoice.dueDate).toDateString()}</p>
-                    <br/>
-                    <p>Thank you for your business.</p>
-                `;
-
-                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from GuardHouse`, emailBody, [
-                    { filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
-                ]);
-
-            } catch (mailError) {
-                console.error("Failed to send email during generation:", mailError);
-                // We should probably warn the user but the invoice is generated
-                return res.status(200).json({ message: "Invoice generated but failed to send email", isError: false, invoices: [invoice] });
             }
         }
 
@@ -250,18 +300,9 @@ router.post("/pay/:id", verifyToken, async (req, res) => {
 
         // Create Transaction
         const transaction = new Transactions({
-            id: transactionId,
-            companyId: invoice.companyId,
-            invoiceId: invoice.id,
-            // ref: getRandomRef(),
-            amount,
-            method,
-            status: "successfully", // Auto-approved
-            billingMonth: invoice.billingPeriod,
-            remarks,
-            transactionDate: date || new Date(),
-            approvedBy: uid,
-            createdBy: uid
+            id: transactionId, companyId: invoice.companyId, invoiceId: invoice.id, amount, method, status: "successfully",
+            billingMonth: invoice.billingPeriod, remarks,
+            transactionDate: date || new Date(), approvedBy: uid, createdBy: uid
         });
 
         await transaction.save();
@@ -317,54 +358,9 @@ router.post("/send", verifyToken, async (req, res) => {
             const company = companyMap[invoice.companyId];
             if (company && company.email) {
                 // Generate PDF
+                // Generate PDF
                 const pdfBuffer = await generateInvoicePDF(invoice, company);
-
-                const emailBody = `
-                    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-                        <div style="border-bottom: 2px solid #eee; padding-bottom: 20px; margin-bottom: 20px;">
-                            <h2 style="color: #2c3e50; margin: 0;">New Incoming Invoice</h2>
-                            <p style="margin: 5px 0 0; color: #7f8c8d;">Adelar Facilities Management Ltd</p>
-                        </div>
-
-                        <p>Dear ${company.name},</p>
-                        <p>Please find attached your invoice for <strong>${dayjs(invoice.billingPeriod).format("MMMM YYYY")}</strong>.</p>
-                        
-                        <div style="background-color: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 5px; padding: 20px; margin: 20px 0;">
-                            <table style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td style="padding: 8px 0; color: #7f8c8d;">Invoice Number:</td>
-                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${invoice.invoiceNo}</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 8px 0; color: #7f8c8d;">Invoice Date:</td>
-                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${new Date(invoice.issueDate).toLocaleDateString()}</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 8px 0; color: #7f8c8d;">Due Date:</td>
-                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${new Date(invoice.dueDate).toLocaleDateString()}</td>
-                                </tr>
-                                <tr>
-                                    <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold;">Total Amount:</td>
-                                    <td style="border-top: 1px solid #ddd; padding: 12px 0 0; font-weight: bold; text-align: right; color: #2c3e50;">$${invoice.totalAmount.toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 8px 0; font-weight: bold; color: #d32f2f;">Balance Due:</td>
-                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #d32f2f;">$${invoice.balanceDue.toFixed(2)}</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <p>If you have any questions regarding this invoice, please do not hesitate to contact us at <a href="mailto:accounts@adelarltd.co.uk" style="color: #3498db; text-decoration: none;">accounts@adelarltd.co.uk</a>.</p>
-                        
-                        <br/>
-                        <p style="font-size: 0.9em; color: #7f8c8d;">
-                            Thank you for your business,<br/>
-                            <strong>Adelar Facilities Management Ltd</strong><br/>
-                            Suite 12 Fountain House, Fountain Lane<br/>
-                            Oldbury, B69 3BH, United Kingdom
-                        </p>
-                    </div>
-                `;
+                const emailBody = getInvoiceEmailBody(company, invoice);
 
                 // Attachments array for nodemailer
                 const attachments = [

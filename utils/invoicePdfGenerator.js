@@ -36,15 +36,15 @@ function generateHeader(doc) {
     doc
         .font("Helvetica-Bold")
         .fontSize(16)
-        .text("Adelar Facilities Management Ltd", 40, 40)
+        .text("Security Matrix AI", 40, 40)
         .font("Helvetica")
         .fontSize(9)
         .text("Suite 12 Fountain House, Fountain Lane", 40, 60)
         .text("Oldbury, B69 3BH", 40, 72)
         .text("United Kingdom", 40, 84)
         .moveDown(0.5)
-        .text("Telephone: 03301338707", 40)
-        .text("Email: accounts@adelarltd.co.uk", 40);
+        .text("Telephone: +44 7466222222", 40)
+        .text("Email: contact@securitymatrixai.com", 40);
 
     // Right Side: Logo Placeholder or Text for now
     // Assuming we want to replicate the logo position
@@ -143,6 +143,15 @@ function generateInvoiceTable(doc, invoice) {
     doc.text(vatRate.toFixed(2), vatX, y, { width: 40, align: "right" });
     doc.text(invoice.subtotal.toFixed(2), netX - 40, y, { width: 40, align: "right" });
 
+    if (invoice.discount > 0) {
+        y += 20;
+        doc.text("Free Trial Discount", descX, y, { width: 300 });
+        doc.text("-", qtyX, y, { width: 40, align: "right" });
+        doc.text("-", rateX, y, { width: 50, align: "right" });
+        doc.text("0.00", vatX, y, { width: 40, align: "right" });
+        doc.text(`-${invoice.discount.toFixed(2)}`, netX - 40, y, { width: 40, align: "right" });
+    }
+
     // Bottom Line
     y += 20;
     doc.moveTo(40, y).lineTo(555, y).lineWidth(0.5).strokeColor("#000000").stroke();
@@ -164,13 +173,18 @@ function generateFooter(doc, invoice) {
     // Row
     let vatRate = 20;
     if (invoice.subtotal > 0 && invoice.tax >= 0) {
-        vatRate = (invoice.tax / invoice.subtotal) * 100;
+        vatRate = (invoice.tax / (invoice.subtotal - (invoice.discount || 0))) * 100;
     }
+
+    // Avoid division by zero issues or negative base
+    if (vatRate < 0 || !isFinite(vatRate)) vatRate = 20;
 
     doc.font("Helvetica");
     const yVat = footerTop + 25;
+    const netAfterDiscount = invoice.subtotal - (invoice.discount || 0);
+
     doc.text(`Standard ${vatRate.toFixed(2)}% (${vatRate.toFixed(2)}%)`, 45, yVat);
-    doc.text(`£${invoice.subtotal.toFixed(2)}`, 200, yVat, { align: "right", width: 40 });
+    doc.text(`£${netAfterDiscount.toFixed(2)}`, 200, yVat, { align: "right", width: 40 });
     doc.text(`£${invoice.tax.toFixed(2)}`, 245, yVat, { align: "right", width: 40 });
 
 
@@ -178,36 +192,48 @@ function generateFooter(doc, invoice) {
     const totalX = 350;
     const labelX = totalX + 10;
     const valX = 510;
+    const rowH = 15;
+    let currentY = footerTop;
 
-    doc.rect(totalX, footerTop, 205, 50).fillColor("#e0eae0").fill(); // Light Green/Grey background for box? Image shows Total box might be distinct.
-    // Actually image shows generic background for Total Net/VAT? No, let's stick to simple layout.
-    // The image: Total Net and Total VAT rows are regular. TOTAL row is Highlighted.
+    // Backgrounds
+    doc.rect(totalX, currentY, 205, rowH).fillColor("#dcdcdc").fill(); // Net
+    doc.rect(totalX, currentY + rowH, 205, rowH).fillColor("#dcdcdc").fill(); // VAT
 
-    // Redoing Right Side Backgrounds
-    // Total Net Row
-    doc.rect(totalX, footerTop, 205, 15).fillColor("#dcdcdc").fill();
-    // Total VAT Row
-    doc.rect(totalX, footerTop + 15, 205, 15).fillColor("#dcdcdc").fill();
-    // Total ROW
-    doc.rect(totalX, footerTop + 30, 205, 20).fillColor("#cce5cc").fill(); // Greenish
+    let boxHeight = rowH * 2; // Net + VAT
+
+    if (invoice.previousBalance > 0) {
+        doc.rect(totalX, currentY + boxHeight, 205, rowH).fillColor("#dcdcdc").fill(); // Previous Balance
+        boxHeight += rowH;
+    }
+
+    // Total Row Background
+    doc.rect(totalX, currentY + boxHeight, 205, 20).fillColor("#cce5cc").fill(); // Total
 
     doc.fillColor("#000000");
 
-    const rowH = 15;
-
     // Total Net
     doc.font("Helvetica").fontSize(9);
-    doc.text("Total Net", labelX, footerTop + 3);
-    doc.text(invoice.subtotal.toFixed(2), valX - 40, footerTop + 3, { align: "right", width: 40 });
+    doc.text("Total Net", labelX, currentY + 3);
+    doc.text(netAfterDiscount.toFixed(2), valX - 40, currentY + 3, { align: "right", width: 40 });
+    currentY += rowH;
 
     // Total VAT
-    doc.text("Total VAT", labelX, footerTop + 3 + rowH);
-    doc.text(invoice.tax.toFixed(2), valX - 40, footerTop + 3 + rowH, { align: "right", width: 40 });
+    doc.text("Total VAT", labelX, currentY + 3);
+    doc.text(invoice.tax.toFixed(2), valX - 40, currentY + 3, { align: "right", width: 40 });
+    currentY += rowH;
+
+    // Previous Balance
+    if (invoice.previousBalance > 0) {
+        doc.text("Previous Balance", labelX, currentY + 3);
+        doc.text(invoice.previousBalance.toFixed(2), valX - 40, currentY + 3, { align: "right", width: 40 });
+        currentY += rowH;
+    }
 
     // TOTAL
     doc.font("Helvetica-Bold");
-    doc.text("TOTAL", labelX, footerTop + 3 + rowH * 2 + 2);
-    doc.text(`£${invoice.totalAmount.toFixed(2)}`, valX - 40, footerTop + 3 + rowH * 2 + 2, { align: "right", width: 40 });
+    doc.text("TOTAL DUE", labelX, currentY + 5);
+    // Assuming totalAmount in invoice object is the final final total including previous balance
+    doc.text(`£${invoice.totalAmount.toFixed(2)}`, valX - 40, currentY + 5, { align: "right", width: 40 });
 
 
     // Notes and Terms
