@@ -102,11 +102,11 @@ function generateInvoiceDetails(doc, invoice, company) {
 function generateInvoiceTable(doc, invoice) {
     const tableTop = 270;
     const itemCodeX = 40;
-    const descX = 40; // Combined description
-    const qtyX = 350;
-    const rateX = 400;
-    const vatX = 460;
-    const netX = 510; // Right aligned end
+    const descX = 40;
+    const qtyX = 310;
+    const rateX = 360;
+    const vatX = 430;
+    const netX = 490;
 
     // Table Header Background
     doc.rect(40, tableTop, 515, 20).fillColor("#f4f4f4").fill();
@@ -115,10 +115,10 @@ function generateInvoiceTable(doc, invoice) {
     // Headers
     doc.font("Helvetica-Bold").fontSize(9);
     doc.text("Description", descX + 5, tableTop + 5);
-    doc.text("Qty/Hrs", qtyX, tableTop + 5, { width: 40, align: "right" });
-    doc.text("Price/Rate", rateX, tableTop + 5, { width: 50, align: "right" });
-    doc.text("VAT %", vatX, tableTop + 5, { width: 40, align: "right" });
-    doc.text("Net", netX - 40, tableTop + 5, { width: 40, align: "right" });
+    doc.text("Qty/Hrs", qtyX, tableTop + 5, { width: 45, align: "right" });
+    doc.text("Price/Rate", rateX, tableTop + 5, { width: 65, align: "right" });
+    doc.text("VAT %", vatX, tableTop + 5, { width: 55, align: "right" });
+    doc.text("Net", netX, tableTop + 5, { width: 65, align: "right" });
 
     // Rows
     doc.font("Helvetica").fontSize(9);
@@ -137,19 +137,19 @@ function generateInvoiceTable(doc, invoice) {
         vatRate = (invoice.tax / invoice.subtotal) * 100;
     }
 
-    doc.text(description, descX, y, { width: 300 });
-    doc.text(quantity.toFixed(2), qtyX, y, { width: 40, align: "right" });
-    doc.text(rate.toFixed(2), rateX, y, { width: 50, align: "right" });
-    doc.text(vatRate.toFixed(2), vatX, y, { width: 40, align: "right" });
-    doc.text(invoice.subtotal.toFixed(2), netX - 40, y, { width: 40, align: "right" });
+    doc.text(description, descX, y, { width: 260 });
+    doc.text(quantity.toFixed(2), qtyX, y, { width: 45, align: "right" });
+    doc.text(rate.toFixed(2), rateX, y, { width: 65, align: "right" });
+    doc.text(vatRate.toFixed(2), vatX, y, { width: 55, align: "right" });
+    doc.text(invoice.subtotal.toFixed(2), netX, y, { width: 65, align: "right" });
 
     if (invoice.discount > 0) {
         y += 20;
-        doc.text("Free Trial Discount", descX, y, { width: 300 });
-        doc.text("-", qtyX, y, { width: 40, align: "right" });
-        doc.text("-", rateX, y, { width: 50, align: "right" });
-        doc.text("0.00", vatX, y, { width: 40, align: "right" });
-        doc.text(`-${invoice.discount.toFixed(2)}`, netX - 40, y, { width: 40, align: "right" });
+        doc.text("Free Trial Discount", descX, y, { width: 260 });
+        doc.text("-", qtyX, y, { width: 45, align: "right" });
+        doc.text("-", rateX, y, { width: 65, align: "right" });
+        doc.text("0.00", vatX, y, { width: 55, align: "right" });
+        doc.text(`-${invoice.discount.toFixed(2)}`, netX, y, { width: 65, align: "right" });
     }
 
     // Bottom Line

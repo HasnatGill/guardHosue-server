@@ -168,8 +168,8 @@ router.post("/generate", verifyToken, async (req, res) => {
                 const pdfBuffer = await generateInvoicePDF(invoiceDoc, company);
                 const emailBody = getInvoiceEmailBody(company, invoiceDoc);
 
-                await sendMail(company.email, `Invoice ${invoice.invoiceNo} from Security Matrix AI`, emailBody, [
-                    { filename: `Invoice-${invoice.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
+                await sendMail(company.email, `Invoice ${invoiceDoc.invoiceNo} from Security Matrix AI`, emailBody, [
+                    { filename: `Invoice-${invoiceDoc.invoiceNo}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }
                 ]);
             } catch (mailError) {
                 console.error("Failed to send email during generation:", mailError);
