@@ -126,6 +126,14 @@ router.post("/generate", verifyToken, async (req, res) => {
         });
 
         const previousBalance = previousInvoices.reduce((sum, inv) => sum + (inv.balanceDue || 0), 0);
+        const previousInvoiceIds = previousInvoices.map(inv => inv.id);
+
+        if (previousInvoiceIds.length > 0) {
+            await Invoices.updateMany(
+                { id: { $in: previousInvoiceIds } },
+                { $set: { status: 'rolledOver', balanceDue: 0 } }
+            );
+        }
 
         const subtotal = quantity * rate;
         const netAfterDiscount = Math.max(0, subtotal - discount); // valid taxable amount
@@ -144,8 +152,9 @@ router.post("/generate", verifyToken, async (req, res) => {
             subtotal,
             discount,
             previousBalance,
+            previousInvoiceIds,
             totalAmount: total,
-            balanceDue: total, // Assuming no immediate payment
+            balanceDue: total,
             createdBy: uid,
             status: mode === 'send' ? 'sent' : 'draft',
         };

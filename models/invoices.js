@@ -17,6 +17,7 @@ const invoicesSchema = new Schema({
     tax: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     previousBalance: { type: Number, default: 0 },
+    previousInvoiceIds: [{ type: String }],
     totalAmount: { type: Number, required: true },
     status: { type: String, enum: ['draft', 'sent', 'paid', 'partiallyPaid', 'overdue', 'cancelled', "rolledOver"], default: 'draft' },
     amountPaid: { type: Number, default: 0 },
