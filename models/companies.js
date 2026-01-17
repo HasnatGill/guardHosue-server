@@ -24,7 +24,6 @@ const schema = new Schema({
     freeTrial: { type: Boolean, default: true },
     trialStartDate: { type: Date, default: null },
     trialEndDate: { type: Date, default: null },
-    // trialEndsAt: { type: Date, default: null }, // Deprecated in favor of Range
 
     createdBy: { type: String, required: true, default: "" },
 }, { timestamps: true })

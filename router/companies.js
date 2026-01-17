@@ -15,6 +15,71 @@ const router = express.Router()
 
 const { APP_URL } = process.env
 
+const getAdminSetupHtml = (verifyUrl) => `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Set Your Password</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+          <tr>
+            <td style="background-color:#BF0603; padding:20px; text-align:center;">
+              <h1 style="margin:0; color:#ffffff; font-size:22px;">Account Setup</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:30px;">
+              <p style="font-size:16px; color:#333333; margin:0 0 15px;">Hello Admin,</p>
+              <p style="font-size:15px; color:#555555; line-height:1.6; margin:0 0 25px;">
+                Your account has been created successfully.  
+                Please click the button below to set your password and activate your account.
+              </p>
+              <table cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td align="center">
+                    <a href="${verifyUrl}"
+                      style="display:inline-block; padding:12px 28px; background-color:#BF0603; color:#ffffff; text-decoration:none; font-size:15px; font-weight:bold; border-radius:5px;">
+                      Set Password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="font-size:14px; color:#777777; margin:25px 0 0; line-height:1.6;">
+                If you did not request this, please ignore this email. This link will expire for security reasons.
+              </p>
+              <p style="font-size:14px; color:#555555; margin:25px 0 0;">
+                Regards,<br /><strong>Security Matrix AI Team</strong>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f1f3f5; padding:15px; text-align:center;">
+              <p style="font-size:12px; color:#999999; margin:0;">
+                © ${dayjs().year()} Security Matrix AI. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+const sendAdminSetupEmail = async (email, token) => {
+  const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${email}`;
+  await sendMail(email, "Set admin profile password for Security Matrix AI", getAdminSetupHtml(verifyUrl));
+};
+
+const handleError = (res, error, message) => {
+  console.error(error);
+  res.status(500).json({ message, isError: true, error: error.message || error });
+};
+
 router.post("/add", verifyToken, async (req, res) => {
   try {
 
@@ -28,14 +93,7 @@ router.post("/add", verifyToken, async (req, res) => {
     if (adminExist) { return res.status(409).json({ message: "An account with this email already exists.", isError: true }); }
     if (existCompany) { return res.status(409).json({ message: "This email is already associated with another company.", isError: true }); }
 
-    // Billing Logic
-    let { freeTrial } = formData;
-    let trialEndsAt = null;
-    if (freeTrial) {
-      trialEndsAt = dayjs().tz(timeZone).utc(true).add(1, 'month').toDate();
-    }
-
-    const company = new Companies({ ...formData, freeTrial, trialEndsAt, id: getRandomId(), createdBy: uid });
+    const company = new Companies({ ...formData, id: getRandomId(), createdBy: uid });
     await company.save();
 
     const adminUid = getRandomId();
@@ -45,97 +103,12 @@ router.post("/add", verifyToken, async (req, res) => {
 
     await newUser.save();
 
-    const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${formData.email}`;
-    const bodyHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>Set Your Password</title>
-</head>
-<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8; padding:20px 0;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-          
-          <!-- Header -->
-          <tr>
-            <td style="background-color:#BF0603; padding:20px; text-align:center;">
-              <h1 style="margin:0; color:#ffffff; font-size:22px;">
-                Account Setup
-              </h1>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:30px;">
-              <p style="font-size:16px; color:#333333; margin:0 0 15px;">
-                Hello Admin,
-              </p>
-
-              <p style="font-size:15px; color:#555555; line-height:1.6; margin:0 0 25px;">
-                Your account has been created successfully.  
-                Please click the button below to set your password and activate your account.
-              </p>
-
-              <!-- Button -->
-              <table cellpadding="0" cellspacing="0" width="100%">
-                <tr>
-                  <td align="center">
-                    <a href="${verifyUrl}"
-                      style="
-                        display:inline-block;
-                        padding:12px 28px;
-                        background-color:##BF0603;
-                        color:#ffffff;
-                        text-decoration:none;
-                        font-size:15px;
-                        font-weight:bold;
-                        border-radius:5px;
-                      ">
-                      Set Password
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="font-size:14px; color:#777777; margin:25px 0 0; line-height:1.6;">
-                If you did not request this, please ignore this email.  
-                This link will expire for security reasons.
-              </p>
-
-              <p style="font-size:14px; color:#555555; margin:25px 0 0;">
-                Regards,<br />
-                <strong>Security Matrix AI Team</strong>
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f1f3f5; padding:15px; text-align:center;">
-              <p style="font-size:12px; color:#999999; margin:0;">
-                © ${dayjs().toDate().getFullYear()} Security Matrix AI. All rights reserved.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-`
-
-    await sendMail(formData.email, "Set admin profile password for Security Matrix AI", bodyHtml);
+    await sendAdminSetupEmail(formData.email, token);
 
     res.status(201).json({ message: "Company & Client Admin added successfully. Verification email sent.", isError: false, company });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Something went wrong while adding the company", isError: true, error });
+    handleError(res, error, "Something went wrong while adding the company");
   }
 });
 
@@ -258,8 +231,7 @@ router.get("/all", verifyToken, async (req, res) => {
     return res.status(200).json({ message: "Companies fetched successfully", isError: false, companies, totals, count: { active: countResult.active, pending: countResult.pending, inactive: countResult.inactive } });
 
   } catch (error) {
-    console.error("Get companies error:", error);
-    return res.status(500).json({ message: "Something went wrong while getting companies", isError: true, error: error.message });
+    handleError(res, error, "Something went wrong while getting companies");
   }
 });
 
@@ -292,9 +264,8 @@ router.patch("/payment-status/:id", verifyToken, async (req, res) => {
 
       return res.status(200).json({ message: "Payment marked paid", company, transaction: txn });
     }
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: "Failed to update payment status" });
+  } catch (error) {
+    handleError(res, error, "Failed to update payment status");
   }
 })
 
@@ -317,8 +288,7 @@ router.get("/all-companies", verifyToken, async (req, res) => {
     res.status(200).json({ message: "Companies fetched", isError: false, companies });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Something went wrong while getting the Companies", isError: true, error: error.message });
+    handleError(res, error, "Something went wrong while getting the Companies");
   }
 });
 
@@ -350,95 +320,15 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     if (!updatedCompany) { return res.status(404).json({ message: "Company didn't update" }) }
 
     if (adminUser && adminUser.email !== newData.email) {
+      const token = getRandomId();
 
       adminUser.email = formData.email
+      adminUser.verifyToken = token
+      adminUser.isEmailVerify = false
+      adminUser.password = ""
       await adminUser.save()
 
-      const token = getRandomId();
-      const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${formData.email}`;
-      const bodyHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <title>Set Your Password</title>
-</head>
-<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8; padding:20px 0;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-          
-          <!-- Header -->
-          <tr>
-            <td style="background-color:#BF0603; padding:20px; text-align:center;">
-              <h1 style="margin:0; color:#ffffff; font-size:22px;">
-                Account Setup
-              </h1>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:30px;">
-              <p style="font-size:16px; color:#333333; margin:0 0 15px;">
-                Hello Admin,
-              </p>
-
-              <p style="font-size:15px; color:#555555; line-height:1.6; margin:0 0 25px;">
-                Your account has been created successfully.  
-                Please click the button below to set your password and activate your account.
-              </p>
-
-              <!-- Button -->
-              <table cellpadding="0" cellspacing="0" width="100%">
-                <tr>
-                  <td align="center">
-                    <a href="${verifyUrl}"
-                      style="
-                        display:inline-block;
-                        padding:12px 28px;
-                        background-color:##BF0603;
-                        color:#ffffff;
-                        text-decoration:none;
-                        font-size:15px;
-                        font-weight:bold;
-                        border-radius:5px;
-                      ">
-                      Set Password
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="font-size:14px; color:#777777; margin:25px 0 0; line-height:1.6;">
-                If you did not request this, please ignore this email.  
-                This link will expire for security reasons.
-              </p>
-
-              <p style="font-size:14px; color:#555555; margin:25px 0 0;">
-                Regards,<br />
-                <strong>Security Matrix AI Team</strong>
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f1f3f5; padding:15px; text-align:center;">
-              <p style="font-size:12px; color:#999999; margin:0;">
-                © ${dayjs().toDate().getFullYear()} Security Matrix AI. All rights reserved.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-`
-      await sendMail(formData.email, "Set admin profile password for Security Matrix AI", bodyHtml);
+      await sendAdminSetupEmail(formData.email, token);
     }
 
 
@@ -447,8 +337,7 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     res.status(200).json({ message: "A company has been successfully updated", isError: false, company: updatedCompany })
 
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Something went wrong while updating the company", isError: true, error })
+    handleError(res, error, "Something went wrong while updating the company");
   }
 })
 
@@ -476,8 +365,7 @@ router.patch("/update-status/:id", verifyToken, async (req, res) => {
     res.status(200).json({ message: `Company ${status === "active" ? "restored" : "deactivated"} successfully`, company, isError: false });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Something went wrong while updating the company status", isError: true, error });
+    handleError(res, error, "Something went wrong while updating the company status");
   }
 });
 
@@ -494,8 +382,7 @@ router.get("/single-with-id/:id", verifyToken, async (req, res) => {
     res.status(200).json({ company })
 
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Something went wrong. Internal server error.", isError: true, error })
+    handleError(res, error, "Something went wrong. Internal server error.");
   }
 })
 
@@ -533,8 +420,7 @@ router.delete("/single/:id", verifyToken, async (req, res) => {
     res.status(200).json({ message: "The company and all related data has been successfully deleted", isError: false })
 
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Something went wrong while deleting the company", isError: true, error })
+    handleError(res, error, "Something went wrong while deleting the company");
   }
 })
 
@@ -593,8 +479,7 @@ router.get("/cards-data", verifyToken, async (req, res) => {
     return res.status(200).json({ company: company[0], transactions: transactions[0], guards: guards[0], customers: customers[0], });
 
   } catch (error) {
-    console.error("Cards-data error:", error);
-    res.status(500).json({ message: "Failed to fetch dashboard cards", error: error.message, });
+    handleError(res, error, "Failed to fetch dashboard cards");
   }
 });
 
