@@ -14,14 +14,14 @@ const upload = multer({ storage })
 
 const router = express.Router()
 
-const { APP_URL_1 } = process.env
+const { APP_URL } = process.env
 
 router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
     try {
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Permission denied" });
 
-        let { firstName, lastName, fullName, email, phone, gender, perHour, expireFrom, expireTo, companyId } = req.body;
+        let { firstName, lastName, fullName, email, phone, gender, licenceExpiryDate, lincenceNumber, companyId } = req.body;
 
         const existUser = await Users.findOne({ email })
         if (existUser) return res.status(401).json({ message: "This email is already in use", isError: true })
@@ -44,12 +44,12 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         const newUserUID = getRandomId();
         const token = getRandomId();
 
-        const newUser = new Users({ firstName, lastName, companyId, verifyToken: token, fullName, email, phone, gender, uid: newUserUID, password: null, photoURL, createdBy: uid, perHour, expireFrom, expireTo, photoPublicId });
+        const newUser = new Users({ firstName, lastName, companyId, verifyToken: token, fullName, email, phone, gender, uid: newUserUID, password: null, photoURL, createdBy: uid, lincenceNumber, licenceExpiryDate, photoPublicId });
 
         await newUser.save();
 
-        const verifyUrl = `${APP_URL_1}/auth/set-password?token=${token}&email=${email}`;
-      const bodyHtml = `
+        const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${email}`;
+        const bodyHtml = `
 <!DOCTYPE html>
 <html>
 <head>

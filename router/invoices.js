@@ -114,7 +114,7 @@ router.post("/generate", verifyToken, async (req, res) => {
                     const overlapDays = overlapEnd.diff(overlapStart, 'day') + 1;
                     const daysInMonth = endOfMonth.date();
                     const totalCost = rate * quantity;
-                    discount = (totalCost / daysInMonth) * overlapDays;
+                    discount = Number(((totalCost / daysInMonth) * overlapDays).toFixed(2));
                 }
             }
         }
@@ -135,13 +135,13 @@ router.post("/generate", verifyToken, async (req, res) => {
             );
         }
 
-        const subtotal = quantity * rate;
-        const netAfterDiscount = Math.max(0, subtotal - discount); // valid taxable amount
+        const subtotal = Number((quantity * rate).toFixed(2));
+        const netAfterDiscount = Number(Math.max(0, subtotal - discount).toFixed(2)); // valid taxable amount
 
         // const taxAmount = manualTax ? Number(manualTax) : (netAfterDiscount * 0.20); // Default 20% if not manual? .
 
         const finalTax = manualTax ? Number(manualTax) : 0;
-        const total = netAfterDiscount + finalTax + previousBalance;
+        const total = Number((netAfterDiscount + finalTax + previousBalance).toFixed(2));
 
         const invoice = {
             id: getRandomId(), companyId: company.id, billingPeriod, billingBasis,
@@ -317,8 +317,8 @@ router.post("/pay/:id", verifyToken, async (req, res) => {
         await transaction.save();
 
         // Update Invoice Payment Details
-        invoice.amountPaid = (invoice.amountPaid || 0) + amount;
-        invoice.balanceDue = invoice.totalAmount - invoice.amountPaid;
+        invoice.amountPaid = Number(((invoice.amountPaid || 0) + amount).toFixed(2));
+        invoice.balanceDue = Number((invoice.totalAmount - invoice.amountPaid).toFixed(2));
 
         if (invoice.balanceDue <= 0) {
             invoice.status = 'paid';
