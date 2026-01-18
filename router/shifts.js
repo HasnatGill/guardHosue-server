@@ -244,7 +244,7 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
         const shiftToSend = {
             ...updatedShift.toObject(),
             guardName: guardUser ? guardUser.fullName : "",
-            siteName: siteData ? siteData.name : "",    
+            siteName: siteData ? siteData.name : "",
             siteAddress: siteData ? siteData.address : "",
             siteCity: siteData ? siteData.city : "",
         };
@@ -278,7 +278,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
 
         const { timeZone = "UTC" } = cleanObjectValues(req.query)
 
-        const currentTimeUTC = dayjs().tz(timeZone).utc(true);
+        const currentTimeUTC = dayjs().tz(timeZone);
         const now = currentTimeUTC.toDate()
         const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
         const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
@@ -362,7 +362,7 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
         if (status) { matchQuery.status = status; }
         matchQuery.companyId = user.companyId
 
-        const currentTimeUTC = dayjs().tz(timeZone).utc(true);
+        const currentTimeUTC = dayjs().tz(timeZone);
         const startOfDayUTC = currentTimeUTC.startOf("day").toDate();
 
         matchQuery.end = { $gte: startOfDayUTC };
@@ -714,7 +714,7 @@ router.get("/incidents", verifyToken, async (req, res) => {
 
         const { startDate, endDate, timeZone } = cleanObjectValues(req.query);
 
-        const currentTimeUTC = dayjs().tz(timeZone).utc(true);
+        const currentTimeUTC = dayjs().tz(timeZone);
 
         let start = currentTimeUTC.startOf("day").toDate();
         let end = currentTimeUTC.endOf("day").toDate();
