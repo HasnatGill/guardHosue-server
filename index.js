@@ -15,6 +15,7 @@ const sites = require("./router/sites")
 const shifts = require("./router/shifts")
 const users = require("./router/users")
 const invoices = require("./router/invoices")
+const taxes = require("./router/taxes")
 
 const { APP_URL, APP_URL_1, APP_URL_2, APP_URL_3, PORT = 8000, HOST = "0.0.0.0" } = process.env
 
@@ -64,6 +65,7 @@ app.use("/sites-registered", sites)
 app.use("/users", users)
 app.use("/shifts", shifts)
 app.use("/invoices", invoices)
+app.use("/taxes", taxes)
 
 server.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Server + Socket.IO running on PORT ${PORT} : ${HOST}`)

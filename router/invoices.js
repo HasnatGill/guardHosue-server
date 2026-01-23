@@ -6,6 +6,7 @@ const Companies = require("../models/companies");
 const Users = require("../models/auth");
 const Customers = require("../models/customers");
 const Sites = require("../models/sites");
+const Taxes = require("../models/taxes");
 const { verifyToken } = require("../middlewares/auth");
 const { getRandomId, cleanObjectValues } = require("../config/global");
 const sendMail = require("../utils/sendMail");
@@ -94,27 +95,47 @@ router.post("/generate", verifyToken, async (req, res) => {
         let rate = company.rate || 0;
         rate = Number(rate.toFixed(2));
 
-        // Free Trial Calculation
+        // Free Trial Calculation (Legacy Logic - keeping if needed, but Manual Discount overrides)
+        // If manual discount is provided, we use that. Otherwise we check for free trial overlap.
+        const { taxId, discountType = 'amount', discountValue = 0 } = req.body;
+
         let discount = 0;
-        if (company.trialStartDate && company.trialEndDate && billingPeriod) {
-            // Parse billing period string (e.g. "January 2024")
-            const periodDate = dayjs(billingPeriod, "MMMM YYYY");
-            if (periodDate.isValid()) {
-                const startOfMonth = periodDate.startOf('month');
-                const endOfMonth = periodDate.endOf('month');
+        let finalDiscountValue = Number(discountValue);
 
-                const trialStart = dayjs(company.trialStartDate);
-                const trialEnd = dayjs(company.trialEndDate);
+        // Calculate Subtotal first
+        const subtotal = Number((quantity * rate).toFixed(2));
 
-                // Calculate Overlap
-                const overlapStart = trialStart.isAfter(startOfMonth) ? trialStart : startOfMonth;
-                const overlapEnd = trialEnd.isBefore(endOfMonth) ? trialEnd : endOfMonth;
+        // Calculate Discount
+        if (finalDiscountValue > 0) {
+            if (discountType === 'percentage') {
+                discount = Number(((subtotal * finalDiscountValue) / 100).toFixed(2));
+            } else {
+                discount = Number(finalDiscountValue.toFixed(2));
+            }
+        } else {
+            // Fallback to legacy trial logic if no manual discount
+            if (company.trialStartDate && company.trialEndDate && billingPeriod) {
+                // Parse billing period string (e.g. "January 2024")
+                const periodDate = dayjs(billingPeriod, "MMMM YYYY");
+                if (periodDate.isValid()) {
+                    const startOfMonth = periodDate.startOf('month');
+                    const endOfMonth = periodDate.endOf('month');
 
-                if (overlapStart.isBefore(overlapEnd) || overlapStart.isSame(overlapEnd, 'day')) {
-                    const overlapDays = overlapEnd.diff(overlapStart, 'day') + 1;
-                    const daysInMonth = endOfMonth.date();
-                    const totalCost = rate * quantity;
-                    discount = Number(((totalCost / daysInMonth) * overlapDays).toFixed(2));
+                    const trialStart = dayjs(company.trialStartDate);
+                    const trialEnd = dayjs(company.trialEndDate);
+
+                    // Calculate Overlap
+                    const overlapStart = trialStart.isAfter(startOfMonth) ? trialStart : startOfMonth;
+                    const overlapEnd = trialEnd.isBefore(endOfMonth) ? trialEnd : endOfMonth;
+
+                    if (overlapStart.isBefore(overlapEnd) || overlapStart.isSame(overlapEnd, 'day')) {
+                        const overlapDays = overlapEnd.diff(overlapStart, 'day') + 1;
+                        const daysInMonth = endOfMonth.date();
+                        const totalCost = rate * quantity;
+                        discount = Number(((totalCost / daysInMonth) * overlapDays).toFixed(2));
+                        // If legacy trial logic kicks in, treat it as amount discount
+                        finalDiscountValue = discount;
+                    }
                 }
             }
         }
@@ -135,22 +156,43 @@ router.post("/generate", verifyToken, async (req, res) => {
             );
         }
 
-        const subtotal = Number((quantity * rate).toFixed(2));
-        const netAfterDiscount = Number(Math.max(0, subtotal - discount).toFixed(2)); // valid taxable amount
+        const netAfterDiscount = Number(Math.max(0, subtotal - discount).toFixed(2));
 
-        // const taxAmount = manualTax ? Number(manualTax) : (netAfterDiscount * 0.20); // Default 20% if not manual? .
+        // Tax Calculation
+        let taxAmount = 0;
+        let taxRate = 0;
+        let taxName = 'No Tax';
 
-        const finalTax = manualTax ? Number(manualTax) : 0;
-        const total = Number((netAfterDiscount + finalTax + previousBalance).toFixed(2));
+        if (taxId) {
+            const taxDoc = await Taxes.findOne({ id: taxId });
+            if (taxDoc) {
+                taxRate = taxDoc.rate;
+                taxName = taxDoc.name;
+                taxAmount = Number(((netAfterDiscount * taxRate) / 100).toFixed(2));
+            }
+        } else if (req.body.tax) {
+            // Fallback for random manual tax amount passed directly (legacy support)
+            taxAmount = Number(req.body.tax);
+            taxName = 'Manual Tax';
+            // Approximate rate for record
+            if (netAfterDiscount > 0) taxRate = Number(((taxAmount / netAfterDiscount) * 100).toFixed(2));
+        }
+
+        const total = Number((netAfterDiscount + taxAmount + previousBalance).toFixed(2));
 
         const invoice = {
             id: getRandomId(), companyId: company.id, billingPeriod, billingBasis,
             dueDate,
             issueDate: new Date(),
             rate, quantity,
-            tax: finalTax,
+            tax: taxAmount,
+            taxId: taxId || null,
+            taxName,
+            taxRate,
             subtotal,
             discount,
+            discountType,
+            discountValue: finalDiscountValue,
             previousBalance,
             previousInvoiceIds,
             totalAmount: total,

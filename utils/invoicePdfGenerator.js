@@ -145,7 +145,7 @@ function generateInvoiceTable(doc, invoice) {
 
     if (invoice.discount > 0) {
         y += 20;
-        doc.text("Free Trial Discount", descX, y, { width: 260 });
+        doc.text("Discount", descX, y, { width: 260 });
         doc.text("-", qtyX, y, { width: 45, align: "right" });
         doc.text("-", rateX, y, { width: 65, align: "right" });
         doc.text("0.00", vatX, y, { width: 55, align: "right" });
@@ -171,21 +171,25 @@ function generateFooter(doc, invoice) {
     doc.text("VAT", 245, footerTop + 5, { align: "right", width: 40 });
 
     // Row
-    let vatRate = 20;
-    if (invoice.subtotal > 0 && invoice.tax >= 0) {
+    // Use stored tax details if available, otherwise calculate fallback
+    let vatRate = invoice.taxRate !== undefined ? invoice.taxRate : 20;
+    let taxName = invoice.taxName || "Standard VAT";
+
+    // If legacy data without taxRate but has Tax Amount, calc it
+    if (invoice.taxRate === undefined && invoice.subtotal > 0 && invoice.tax >= 0) {
         vatRate = (invoice.tax / (invoice.subtotal - (invoice.discount || 0))) * 100;
     }
 
     // Avoid division by zero issues or negative base
-    if (vatRate < 0 || !isFinite(vatRate)) vatRate = 20;
+    if (vatRate < 0 || !isFinite(vatRate)) vatRate = 0;
 
     doc.font("Helvetica");
     const yVat = footerTop + 25;
     const netAfterDiscount = invoice.subtotal - (invoice.discount || 0);
 
-    doc.text(`Standard ${vatRate.toFixed(2)}% (${vatRate.toFixed(2)}%)`, 45, yVat);
+    doc.text(`${taxName} ${vatRate.toFixed(2)}% (${vatRate.toFixed(2)}%)`, 45, yVat);
     doc.text(`${netAfterDiscount.toFixed(2)}`, 200, yVat, { align: "right", width: 40 });
-    doc.text(`${invoice.tax.toFixed(2)}`, 245, yVat, { align: "right", width: 40 });
+    doc.text(`${(invoice.tax || 0).toFixed(2)}`, 245, yVat, { align: "right", width: 40 });
 
 
     // Totals Table (Right)
