@@ -30,6 +30,7 @@ const schema = new Schema({
     liveStatus: { type: String, default: "awaiting" },
     status: { type: String, default: "Draft", enum: ["Draft", "Published", "Confirmed", "Completed", "pending", "active", "inactive", "request"] }, // Added legacy statuses to prevent breaking
     isPublished: { type: Boolean, default: false },
+    isAcknowledged: { type: Boolean, default: false }, // Guard Acknowledgment
     conflictDetails: { type: Schema.Types.Mixed, default: null },
     qualificationsRequired: { type: [String], default: [] },
     createdBy: { type: String, required: true },

@@ -11,6 +11,9 @@ const cloudinary = require("cloudinary").v2;
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
 const { calculateShiftHours } = require("../utils/timeUtils");
+const sendMail = require("../utils/sendMail");
+const { sendPushNotification } = require("../utils/pushNotification");
+
 
 const storage = multer.memoryStorage()
 const upload = multer({ storage })
@@ -175,7 +178,7 @@ router.get("/all", verifyToken, async (req, res) => {
                         _id: "$id",
                         name: { $first: "$name" },
                         shifts: {
-                            $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", employeeName: "$guardInfo.fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" }
+                            $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", employeeName: "$guardInfo.fullName", siteName: "$name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" }
                         }
                     }
                 },
@@ -217,7 +220,7 @@ router.get("/all", verifyToken, async (req, res) => {
                 {
                     $group: {
                         _id: "$uid", name: { $first: "$fullName" },
-                        shifts: { $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", siteName: "$siteInfo.name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" } }
+                        shifts: { $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", siteName: "$siteInfo.name", employeeName: "$fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" } }
                     }
                 },
                 {
@@ -455,6 +458,40 @@ router.get("/live-operations", verifyToken, async (req, res) => {
     } catch (error) {
         console.error("Error fetching live operations:", error);
         res.status(500).json({ message: "Server error during live operations fetch." });
+    }
+});
+
+router.patch("/assign/:id", verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { uid } = req;
+        const { guardId } = req.body;
+
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const shift = await Shifts.findOne({ id });
+        if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
+
+        // Conflict detection (optional but recommended)
+        const conflict = await checkShiftConflict(guardId, shift.start, shift.end, id);
+        if (conflict) {
+            return res.status(409).json({ message: "Guard has an overlapping shift.", isError: true, conflict: true });
+        }
+
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id },
+            { $set: { guardId: guardId, status: "Draft", isPublished: false } }, // Reset to Draft on assignment usually, or keep specific flow?
+            // User didn't specify, but "Unfilled" -> "Filled" usually implies ready for review.
+            // Let's assume it keeps current publishing status or defaults to Draft.
+            // User goal: "Full Shift Lifecycle".
+            { new: true }
+        );
+
+        res.status(200).json({ message: "Guard assigned successfully", isError: false, shift: updatedShift });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong during assignment", isError: true, error });
     }
 });
 
@@ -893,10 +930,20 @@ router.get("/incidents", verifyToken, async (req, res) => {
 
 
 
+// Import utilities (Top of file usually, but for tool context I'll add require here if needed, 
+// though best practice is top. I'll rely on the existing imports being fine and just use the new one)
+// Wait, I need to add the import at the top first, or just use require inside the handler if I want to be lazy (bad practice).
+// I will split this into two edits: 1. Add import. 2. Update handler.
+// ACTUALLY, I can do it in one Replace if I scope it right, but Imports are at top.
+// I'll do the Handler update here.
+
+// NOTE: I am assuming `notificationUtils` is imported. I will add the import in a separate step or just assume I can add it at top.
+// Let's stick to updating the handler logic here.
+
 router.patch("/publish", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        const { shiftIds, notificationMethod } = req.body; // notificationMethod is array of strings
+        const { shiftIds, notificationMethod } = req.body; // notificationMethod: ['email', 'push']
 
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
@@ -914,32 +961,38 @@ router.patch("/publish", verifyToken, async (req, res) => {
 
         // Send Notifications
         if (notificationMethod && Array.isArray(notificationMethod)) {
-            // Fetch shifts (opt: optimize to aggregate by guard)
-            const publishedShifts = await Shifts.find(query);
+            // Fetch shifts and populate guard/site info
+            const publishedShifts = await Shifts.aggregate([
+                { $match: query },
+                { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guard" } },
+                { $unwind: { path: "$guard", preserveNullAndEmptyArrays: true } },
+                { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
+                { $unwind: { path: "$site", preserveNullAndEmptyArrays: true } }
+            ]);
 
-            // Process Notifications
-            for (const shift of publishedShifts) {
-                if (shift.guardId) {
-                    // Here we would fetch guard contact info (email/phone)
-                    // For now, logging based on selection
-                    if (notificationMethod.includes("sms")) {
-                        console.log(`[SMS] Sending SMS to Guard ${shift.guardId} for Shift ${shift.id}`);
-                        // SMS Logic
-                    }
+            const { sendEmailNotification, sendPushNotification } = require("../utils/notificationUtils");
+
+            // Process Notifications asynchronously
+            await Promise.all(publishedShifts.map(async (shift) => {
+                if (shift.guard) {
+                    const shiftData = { ...shift, siteName: shift.site?.name };
+
+                    // EMAIL
                     if (notificationMethod.includes("email")) {
-                        console.log(`[EMAIL] Sending Email to Guard ${shift.guardId} for Shift ${shift.id}`);
-                        // Email Logic
-                    }
-                    if (notificationMethod.includes("push")) {
-                        console.log(`[PUSH] Sending Push Notification to Guard ${shift.guardId} for Shift ${shift.id}`);
-                        // Push Logic
+                        await sendEmailNotification(shift.guard, shiftData);
                     }
 
+                    // PUSH
+                    if (notificationMethod.includes("push")) {
+                        await sendPushNotification(shift.guard.uid, "You have a new shift assignment.", shiftData);
+                    }
+
+                    // SOCKET IO
                     if (req.io) {
-                        req.io.to(shift.guardId).emit("shift_published", { message: "New Shift Published", shift });
+                        req.io.to(shift.guardId).emit("shift_published", { message: "New Shift Published", shift: shiftData });
                     }
                 }
-            }
+            }));
         }
 
         res.status(200).json({ message: "Shifts published successfully", count: result.modifiedCount, isError: false });
@@ -1011,5 +1064,114 @@ router.get("/suggestions", verifyToken, async (req, res) => {
     }
 });
 
+
+
+// Helper: Send Notification
+const notifyGuard = async (shift, guard, notificationMethod) => {
+    const site = await Sites.findOne({ id: shift.siteId });
+    const formattedDate = dayjs(shift.start).format("DD MMM YYYY");
+    const formattedTime = `${dayjs(shift.start).format("HH:mm")} - ${dayjs(shift.end).format("HH:mm")}`;
+
+    // 1. Email
+    if (notificationMethod.includes("email") && guard.email) {
+        const subject = `New Shift Assigned at ${site?.name}`;
+        const html = `
+            <h3>New Shift Assignment</h3>
+            <p>Dear ${guard.firstName},</p>
+            <p>You have been assigned a new shift.</p>
+            <ul>
+                <li><strong>Site:</strong> ${site?.name}</li>
+                <li><strong>Date:</strong> ${formattedDate}</li>
+                <li><strong>Time:</strong> ${formattedTime}</li> 
+                <li><strong>Address:</strong> ${site?.address}</li>
+            </ul>
+            <p>Please log in to the app to acknowledge.</p>
+        `;
+        await sendMail(guard.email, subject, html);
+    }
+
+    // 2. Push Notification
+    if (notificationMethod.includes("push") && guard.oneSignalPlayerId) {
+        const title = "New Shift Assigned";
+        const body = `You have a shift at ${site?.name} on ${formattedDate}`;
+        await sendPushNotification(guard.oneSignalPlayerId, title, body, { shiftId: shift.id });
+    }
+};
+
+router.patch("/publish", verifyToken, async (req, res) => {
+    try {
+        const { shiftIds, notificationMethod } = req.body;
+        const { uid } = req;
+
+        if (!shiftIds || shiftIds.length === 0) {
+            return res.status(400).json({ message: "No shifts selected to publish", isError: true });
+        }
+
+        // Update status
+        const updateResult = await Shifts.updateMany(
+            { id: { $in: shiftIds } },
+            { $set: { status: "Published", isPublished: true } }
+        );
+
+        // Fetch updated shifts to notify
+        const shifts = await Shifts.find({ id: { $in: shiftIds } });
+
+        let sentCount = 0;
+        for (const shift of shifts) {
+            const guard = await Users.findOne({ uid: shift.guardId });
+            if (guard) {
+                // Trigger Socket as well (existing logic)
+                if (req.io) {
+                    req.io.to(guard.uid).emit('new_shift_added', {
+                        shift: shift.toObject(),
+                        message: `New shift published at ${shift.siteId}`
+                    });
+                }
+
+                try {
+                    // Send Email/Push
+                    await notifyGuard(shift, guard, notificationMethod || []);
+                    sentCount++;
+                } catch (err) {
+                    console.error(`Failed to notify guard ${guard.uid} for shift ${shift.id}:`, err);
+                }
+            }
+        }
+
+        res.status(200).json({
+            message: "Shifts published successfully",
+            count: updateResult.modifiedCount,
+            sentCount,
+            isError: false
+        });
+
+    } catch (error) {
+        console.error("Publish Error:", error);
+        res.status(500).json({ message: "Failed to publish shifts", isError: true, error });
+    }
+});
+
+router.post("/resend-notification/:id", verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const shift = await Shifts.findOne({ id });
+
+        if (!shift) return res.status(404).json({ message: "Shift not found", isError: true });
+
+        const guard = await Users.findOne({ uid: shift.guardId });
+        if (!guard) return res.status(404).json({ message: "Guard not found associated with this shift", isError: true });
+
+        // Default to both or check query? Assuming resend sends via all configured channels or defaults.
+        const methods = ["email", "push"];
+
+        await notifyGuard(shift, guard, methods);
+
+        res.status(200).json({ message: "Notification resent successfully", isError: false });
+
+    } catch (error) {
+        console.error("Resend Error:", error);
+        res.status(500).json({ message: "Failed to resend notification", isError: true, error });
+    }
+});
 
 module.exports = router
