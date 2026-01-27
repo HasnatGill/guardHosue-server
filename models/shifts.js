@@ -10,8 +10,10 @@ const schema = new Schema({
     start: { type: Date, required: true },
     end: { type: Date, required: true },
     date: { type: Date, required: true },
-    breakTime: { type: Number, required: true },
+    breakTime: { type: Number, required: true }, // In Minutes
+    guardRole: { type: String, default: "" }, // Role selection
     totalHours: { type: Number, required: true },
+    paidHours: { type: Number, default: 0 },
     reason: { type: String, default: "" },
     checkIn: { type: Date, default: null },
     checkOut: { type: Date, default: null },
@@ -26,7 +28,10 @@ const schema = new Schema({
     totalPayments: { type: Number, default: 0 },
     attachments: { type: Schema.Types.Mixed, default: [] },
     liveStatus: { type: String, default: "awaiting" },
-    status: { type: String, default: "pending" },
+    status: { type: String, default: "Draft", enum: ["Draft", "Published", "Confirmed", "Completed", "pending", "active", "inactive", "request"] }, // Added legacy statuses to prevent breaking
+    isPublished: { type: Boolean, default: false },
+    conflictDetails: { type: Schema.Types.Mixed, default: null },
+    qualificationsRequired: { type: [String], default: [] },
     createdBy: { type: String, required: true },
 }, { timestamps: true })
 

@@ -37,6 +37,11 @@ const schema = new Schema({
     verifyToken: { type: String, default: "" },
     status: { type: String, default: "active" },
     roles: { type: [String], default: ["guard"] },
+    skills: { type: [String], default: [] },
+    location: {
+        latitude: { type: Number, default: null },
+        longitude: { type: Number, default: null }
+    },
     otp: String,
     otpExpires: Date,
     createdBy: { type: String, required: true },

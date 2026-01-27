@@ -16,6 +16,7 @@ const schema = new Schema({
     address: { type: String, required: false, trim: true },
     street_address: { type: String, trim: true, default: "", },
     street_address_1: { type: String, trim: true, default: "", },
+    requiredSkills: { type: [String], default: [] },
     status: { type: String, default: "active" },
     createdBy: { type: String, required: true },
 }, { timestamps: true })

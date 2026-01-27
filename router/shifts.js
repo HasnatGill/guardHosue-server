@@ -10,12 +10,61 @@ const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
+const { calculateShiftHours } = require("../utils/timeUtils");
 
 const storage = multer.memoryStorage()
 const upload = multer({ storage })
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+
+// Helper: Conflict Detection
+const checkShiftConflict = async (guardId, start, end, excludeShiftId = null) => {
+    // Queries overlap using both Date and Time (Full ISO Date Objects)
+    // Logic: (NewStart < ExistingEnd) AND (NewEnd > ExistingStart)
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+
+    const query = {
+        guardId,
+        status: { $ne: "cancelled" },
+        $or: [
+            {
+                start: { $lt: endDate },
+                end: { $gt: startDate }
+            }
+        ]
+    };
+    if (excludeShiftId) {
+        query.id = { $ne: excludeShiftId };
+    }
+    const conflict = await Shifts.findOne(query);
+    return conflict;
+};
+
+// Helper: Compliance Check
+const checkCompliance = async (guardId, start, end) => {
+    const guard = await Users.findOne({ uid: guardId });
+    if (!guard) return { valid: false, message: "Guard not found" };
+
+    const warnings = [];
+
+    // 1. License Check
+    if (guard.licenceExpiryDate && dayjs(guard.licenceExpiryDate).isBefore(dayjs(end))) {
+        warnings.push(`Guard's SIA license expires on ${dayjs(guard.licenceExpiryDate).format("DD/MM/YYYY")}`);
+    }
+
+    // 2. Rest Period (11h rule)
+    const lastShift = await Shifts.findOne({ guardId, end: { $lte: start } }).sort({ end: -1 });
+    if (lastShift) {
+        const hoursSinceLast = dayjs(start).diff(dayjs(lastShift.end), 'hour');
+        if (hoursSinceLast < 11) {
+            warnings.push(`Rest period violation: Only ${hoursSinceLast} hours since last shift.`);
+        }
+    }
+
+    return { valid: warnings.length === 0, warnings };
+};
 
 const router = express.Router()
 
@@ -26,23 +75,69 @@ router.post("/add", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
-        let formData = req.body
+        let formData = req.body;
+        const { guardId, start, end, breakTime } = formData;
+
+        // 1. Conflict Check
+        let conflictError = null;
+        if (guardId) {
+            const conflict = await checkShiftConflict(guardId, start, end);
+            if (conflict) {
+                if (!formData.forceSave) {
+                    return res.status(409).json({
+                        message: "Guard has an overlapping shift.",
+                        isError: true,
+                        conflict: true,
+                        conflictDetails: conflict
+                    });
+                } else {
+                    conflictError = {
+                        type: "Overlapping Shift",
+                        details: `Forced override. Overlaps with shift ${conflict.id}`
+                    };
+                }
+            }
+        }
+
+        // 2. Compliance Check
+        let complianceWarnings = [];
+        if (guardId) {
+            const compliance = await checkCompliance(guardId, start, end);
+            if (!compliance.valid) {
+                complianceWarnings = compliance.warnings;
+            }
+        }
 
         const site = await Sites.findOne({ id: formData.siteId }).select('-createdBy -__v -_id')
 
-        const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId })
+        // Inherit qualifications if not provided
+        const qualificationsRequired = formData.qualificationsRequired || site.requiredSkills || [];
+
+        // Calculate hours
+        const { totalHours, paidHours } = calculateShiftHours(start, end, breakTime);
+
+        const shift = new Shifts({
+            ...formData,
+            id: getRandomId(),
+            createdBy: uid,
+            companyId: user.companyId,
+            customerId: site.customerId,
+            conflictDetails: conflictError,
+            qualificationsRequired: qualificationsRequired,
+            status: formData.isPublished ? "Published" : "Draft",
+            totalHours,
+            paidHours
+        })
         await shift.save()
 
         let shiftObject = shift.toObject();
         if (site) { shiftObject.siteId = site.toObject(); }
 
-        const guardId = shiftObject.guardId;
-
-        if (guardId && req.io) {
-            req.io.to(guardId).emit('new_shift_added', { shift: shiftObject, message: `Your new shift add at ${shiftObject?.siteId?.name}`, });
+        if (shiftObject.guardId && req.io && formData.isPublished) {
+            req.io.to(shiftObject.guardId).emit('new_shift_added', { shift: shiftObject, message: `Your new shift add at ${shiftObject?.siteId?.name}`, });
         }
 
-        res.status(201).json({ message: "Your shift added has been successfully", isError: false, shift })
+        res.status(201).json({ message: "Your shift added has been successfully", isError: false, shift, warnings: complianceWarnings })
 
     } catch (error) {
         console.error(error)
@@ -80,7 +175,7 @@ router.get("/all", verifyToken, async (req, res) => {
                         _id: "$id",
                         name: { $first: "$name" },
                         shifts: {
-                            $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", employeeName: "$guardInfo.fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" }
+                            $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", employeeName: "$guardInfo.fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" }
                         }
                     }
                 },
@@ -122,7 +217,7 @@ router.get("/all", verifyToken, async (req, res) => {
                 {
                     $group: {
                         _id: "$uid", name: { $first: "$fullName" },
-                        shifts: { $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", siteName: "$siteInfo.name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours" } }
+                        shifts: { $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", siteName: "$siteInfo.name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" } }
                     }
                 },
                 {
@@ -230,11 +325,55 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
 
         const oldGuardId = existingShift.guardId;
 
-        const { start, end, siteId, guardId, breakTime } = updatedData
+        // 1. Conflict Check
+        const { start, end, siteId, guardId, breakTime, isPublished, forceSave, qualificationsRequired } = updatedData;
+        let conflictError = null;
+        if (guardId) {
+            const conflict = await checkShiftConflict(guardId, start, end, id);
+            if (conflict) {
+                if (!forceSave) {
+                    return res.status(409).json({
+                        message: "Guard has an overlapping shift.",
+                        isError: true,
+                        conflict: true,
+                        conflictDetails: conflict
+                    });
+                } else {
+                    conflictError = {
+                        type: "Overlapping Shift",
+                        details: `Forced override. Overlaps with shift ${conflict.id}`
+                    };
+                }
+            }
+        }
+
+        // 2. Compliance Check
+        let complianceWarnings = [];
+        if (guardId) {
+            const compliance = await checkCompliance(guardId, start, end);
+            if (!compliance.valid) complianceWarnings = compliance.warnings;
+        }
+
+        // Calculate hours
+        const { totalHours, paidHours } = calculateShiftHours(start, end, breakTime);
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id },
-            { $set: { start: start, end: end, siteId: siteId, guardId: guardId, status: "pending", breakTime: breakTime } },
+            {
+                $set: {
+                    start: start,
+                    end: end,
+                    siteId: siteId,
+                    guardId: guardId,
+                    status: isPublished ? "Published" : "Draft",
+                    breakTime: breakTime,
+                    isPublished: isPublished,
+                    conflictDetails: conflictError,
+                    qualificationsRequired: qualificationsRequired,
+                    totalHours,
+                    paidHours
+                }
+            },
             { new: true }
         );
 
@@ -251,7 +390,9 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
 
         const shiftMessage = `Your shift Update at ${shiftToSend.siteName}`;
 
-        if (req.io) {
+
+
+        if (req.io && updatedShift.isPublished) {
             if (newGuardId && newGuardId !== oldGuardId) {
                 req.io.to(oldGuardId).emit('remove_shift_from_admin', { shift: shiftToSend, message: `Your shift has been removed from ${shiftToSend.siteName}` });
                 req.io.to(newGuardId).emit('new_shift_added', { shift: shiftToSend, message: `You have been assigned a new shift at ${shiftToSend.siteName}` });
@@ -261,7 +402,7 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
             }
         }
 
-        res.status(200).json({ message: "Shift updated successfully", isError: false, shift: updatedShift });
+        res.status(200).json({ message: "Shift updated successfully", isError: false, shift: updatedShift, warnings: complianceWarnings });
     } catch (error) {
         console.error("Shift Update Error:", error);
         res.status(500).json({ message: "Something went wrong while updating the shift", isError: true, error: error.message });
@@ -389,7 +530,7 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
                 }
             },
 
-            { $project: { id: '$id', start: '$start', end: '$end', date: '$date', status: '$status', reason: "$reason", liveStatus: '$liveStatus', totalHours: '$totalHours', siteId: '$siteId', siteName: '$siteInfo.name', guardId: '$guardId', guardName: '$guardInfo.fullName', guardEmail: '$guardInfo.email', } },
+            { $project: { id: '$id', start: '$start', end: '$end', date: '$date', status: '$status', reason: "$reason", liveStatus: '$liveStatus', totalHours: '$totalHours', siteId: '$siteId', siteName: '$siteInfo.name', guardId: '$guardId', guardName: '$guardInfo.fullName', guardEmail: '$guardInfo.email', isPublished: '$isPublished', conflictDetails: '$conflictDetails' } },
             { $sort: { start: 1 } },
             { $facet: { metadata: [{ $count: "totals" }], data: [{ $skip: skip }, { $limit: limit }] } }
         ];
@@ -750,6 +891,125 @@ router.get("/incidents", verifyToken, async (req, res) => {
     }
 });
 
+
+
+router.patch("/publish", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { shiftIds, notificationMethod } = req.body; // notificationMethod is array of strings
+
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(401).json({ message: "User not found", isError: true });
+
+        if (!shiftIds || shiftIds.length === 0) {
+            return res.status(400).json({ message: "No shifts selected to publish.", isError: true });
+        }
+
+        const query = { id: { $in: shiftIds }, companyId: user.companyId };
+
+        // Update shifts
+        const result = await Shifts.updateMany(query, { $set: { isPublished: true, status: "pending" } });
+
+        // Send Notifications
+        if (notificationMethod && Array.isArray(notificationMethod)) {
+            // Fetch shifts (opt: optimize to aggregate by guard)
+            const publishedShifts = await Shifts.find(query);
+
+            // Process Notifications
+            for (const shift of publishedShifts) {
+                if (shift.guardId) {
+                    // Here we would fetch guard contact info (email/phone)
+                    // For now, logging based on selection
+                    if (notificationMethod.includes("sms")) {
+                        console.log(`[SMS] Sending SMS to Guard ${shift.guardId} for Shift ${shift.id}`);
+                        // SMS Logic
+                    }
+                    if (notificationMethod.includes("email")) {
+                        console.log(`[EMAIL] Sending Email to Guard ${shift.guardId} for Shift ${shift.id}`);
+                        // Email Logic
+                    }
+                    if (notificationMethod.includes("push")) {
+                        console.log(`[PUSH] Sending Push Notification to Guard ${shift.guardId} for Shift ${shift.id}`);
+                        // Push Logic
+                    }
+
+                    if (req.io) {
+                        req.io.to(shift.guardId).emit("shift_published", { message: "New Shift Published", shift });
+                    }
+                }
+            }
+        }
+
+        res.status(200).json({ message: "Shifts published successfully", count: result.modifiedCount, isError: false });
+
+    } catch (error) {
+        console.error("Error publishing shifts:", error);
+        res.status(500).json({ message: "Something went wrong", isError: true });
+    }
+});
+
+
+router.get("/suggestions", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { siteId, start, end } = cleanObjectValues(req.query);
+
+        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const site = await Sites.findOne({ id: siteId });
+        if (!site) return res.status(404).json({ message: "Site not found.", isError: true });
+
+        const user = await Users.findOne({ uid });
+
+        const guards = await Users.find({
+            companyId: user.companyId,
+            roles: "guard",
+            status: "active"
+        });
+
+        const suggestions = [];
+
+        for (const guard of guards) {
+            let score = 100;
+            const reasons = [];
+
+            // Skill Match
+            const missingSkills = (site.requiredSkills || []).filter(skill => !(guard.skills || []).includes(skill));
+            if (missingSkills.length > 0) {
+                score -= 50;
+                reasons.push(`Missing skills: ${missingSkills.join(", ")}`);
+            }
+
+            // Conflict Check
+            const conflict = await checkShiftConflict(guard.uid, start, end);
+            if (conflict) {
+                score = 0;
+                reasons.push("Already has a shift at this time.");
+            }
+
+            // Compliance Check
+            const compliance = await checkCompliance(guard.uid, start, end);
+            if (!compliance.valid) {
+                score -= 30;
+                reasons.push(...compliance.warnings);
+            }
+
+            if (score > 0) {
+                suggestions.push({ guard, score, reasons });
+            }
+        }
+
+        suggestions.sort((a, b) => b.score - a.score);
+
+        res.status(200).json({ suggestions });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error fetching suggestions", isError: true });
+    }
+});
 
 
 module.exports = router
