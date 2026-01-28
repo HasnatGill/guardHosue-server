@@ -39,6 +39,10 @@ const server = http.createServer(app)
 const { initIO } = require("./socket")
 const io = initIO(server, [APP_URL, APP_URL_1, APP_URL_2, APP_URL_3])
 
+// ✅ Background Cron Jobs
+const { initCronJobs } = require("./utils/cronJobs")
+initCronJobs()
+
 app.use((req, res, next) => {
     req.io = io;
     next();

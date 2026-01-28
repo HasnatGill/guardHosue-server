@@ -13,6 +13,7 @@ const { getRandomId, cleanObjectValues } = require("../config/global");
 const { calculateShiftHours } = require("../utils/timeUtils");
 const sendMail = require("../utils/sendMail");
 const { sendPushNotification } = require("../utils/pushNotification");
+const { getDistance } = require("../utils/locationUtils");
 
 
 const storage = multer.memoryStorage()
@@ -427,11 +428,6 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
         const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
 
-        await Shifts.updateMany(
-            { liveStatus: 'awaiting', end: { $lt: now } },
-            { $set: { liveStatus: 'missed', status: 'inactive' } }
-        );
-
         const pipeline = [
             {
                 $match: {
@@ -447,8 +443,27 @@ router.get("/live-operations", verifyToken, async (req, res) => {
             { $unwind: "$customerDetails" },
             { $match: { "customerDetails.companyId": user.companyId } },
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
-            { $unwind: "$guardDetails" },
-            { $project: { _id: 0, id: "$id", liveStatus: "$liveStatus", checkIn: "$checkIn", customer: "$customerDetails.name", site: "$siteDetails.name", name: "$guardDetails.fullName", status: "$status", startTime: "$start", endTime: "$end", locations: "$locations", checkOut: "$checkOut", guardId: "$guardId" } },
+            { $unwind: { path: "$guardDetails", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 0,
+                    id: "$id",
+                    liveStatus: "$liveStatus",
+                    checkIn: "$checkIn",
+                    customer: "$customerDetails.name",
+                    site: "$siteDetails.name",
+                    name: { $ifNull: ["$guardDetails.fullName", "UNASSIGNED"] },
+                    status: "$status",
+                    startTime: "$start",
+                    endTime: "$end",
+                    locations: "$locations",
+                    checkOut: "$checkOut",
+                    guardId: "$guardId",
+                    isGeofenceVerified: "$isGeofenceVerified",
+                    actualStartTime: "$actualStartTime",
+                    clockInLocation: "$clockInLocation"
+                }
+            },
         ];
 
         const shifts = await Shifts.aggregate(pipeline);
@@ -704,102 +719,184 @@ router.patch("/send-request/:id", verifyToken, async (req, res) => {
 
 router.patch("/check-in/:id", verifyToken, async (req, res) => {
     try {
-
         const { uid } = req;
         const { id: shiftId } = req.params;
-        const { checkInTime, timeZone = "UTC" } = cleanObjectValues(req.query);
+        const { latitude, longitude, timeZone = "UTC" } = cleanObjectValues(req.body);
 
-        const user = await Users.findOne({ uid })
-        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
+        // 1. Guard Identity & Duplicate Check
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const alreadyActiveShift = await Shifts.findOne({ guardId: uid, status: "active", liveStatus: "checkIn" });
-        if (alreadyActiveShift) { return res.status(400).json({ message: "You are already in a shift.", isError: true }); }
+        const alreadyActiveShift = await Shifts.findOne({ guardId: uid, status: "active" });
+        if (alreadyActiveShift) return res.status(400).json({ message: "You are already clocked into another active shift.", isError: true });
 
         const shift = await Shifts.findOne({ id: shiftId });
-        if (!shift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
+        if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
 
-        const shiftStart = dayjs.utc(shift.start).tz(timeZone);
-        const checkInDate = dayjs.tz(checkInTime, timeZone);
-
-        let updatedTotalHours = shift.totalHours;
-        let lateMinutes = 0;
-
-        if (checkInDate.isAfter(shiftStart)) {
-            lateMinutes = checkInDate.diff(shiftStart, "minute");
-            const deductedHours = Math.ceil(lateMinutes / 30) * 0.5;
-            updatedTotalHours = Math.max(shift.totalHours - deductedHours, 0);
+        if (shift.status === "active" || shift.status === "Completed") {
+            return res.status(400).json({ message: "Shift is already active or completed.", isError: true });
         }
 
+        const site = await Sites.findOne({ id: shift.siteId }).lean();
+        if (!site) return res.status(404).json({ message: "Assigned site not found.", isError: true });
+
+        // 2. Geofence Validation Snapshot
+        let isGeofenceVerified = true;
+        let violationFlag = null;
+
+        if (latitude && longitude && site.location) {
+            const distance = getDistance(
+                Number(latitude), Number(longitude),
+                Number(site.location.lat), Number(site.location.lng)
+            );
+
+            if (distance > (site.clockInRadius || 100)) {
+                isGeofenceVerified = false;
+                violationFlag = "GEOFENCE_VIOLATION";
+            }
+        } else {
+            return res.status(400).json({ message: "Location coordinates are required for clock-in.", isError: true });
+        }
+
+        // 3. Punctuality Calculation
+        const now = dayjs();
+        const shiftStart = dayjs.utc(shift.start).tz(timeZone);
+        let punctualityStatus = "On-Time";
+
+        if (now.isBefore(shiftStart.subtract(5, 'minute'))) {
+            punctualityStatus = "Early";
+        } else if (now.isAfter(shiftStart.add(15, 'minute'))) {
+            punctualityStatus = "Late";
+        }
+
+        // 4. Atomic Status Updates
+        const actualStartTime = now.toDate();
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: "active", liveStatus: "checkIn", checkIn: checkInTime, totalHours: updatedTotalHours } },
+            {
+                $set: {
+                    status: "active",
+                    liveStatus: "checkIn",
+                    checkIn: actualStartTime,
+                    actualStartTime,
+                    clockInLocation: { lat: Number(latitude), lng: Number(longitude) },
+                    isGeofenceVerified,
+                    punctualityStatus,
+                    violationDetails: violationFlag
+                }
+            },
             { new: true }
         );
 
-        const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
         const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
         const shiftFormat = { ...updatedShift.toObject(), site: site, guard: guardUser }
 
-        if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
+        // 5. Real-time Notification
+        const eventMessage = violationFlag ? `Clock-In Alert: Geofence Violation by ${guardUser.fullName}` : `Guard ${guardUser.fullName} clocked in (${punctualityStatus})`;
+        req.io.emit('shift_status_updated', { shift: updatedShift, type: 'check_in', message: eventMessage });
 
-        req.io.emit('shift_check_in', { shift: updatedShift, type: 'check_in', message: `Shift Chock In. by ${guardUser.fullName}` });
-        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_in', { shift: shiftFormat, message: `Shift clock-in`, }); }
+        if (updatedShift.guardId && req.io) {
+            req.io.to(updatedShift.guardId).emit('shift_check_in', { shift: shiftFormat, message: "Clock-in successful." });
+        }
 
-        res.status(200).json({ message: "Check-in successful and shift updated.", isError: false, shift: shiftFormat });
+        res.status(200).json({
+            message: `Clock-in successful. Status: ${punctualityStatus}`,
+            isError: false,
+            shift: shiftFormat,
+            geofenceVerified: isGeofenceVerified
+        });
+
     } catch (error) {
-        console.error("Check-In Error:", error);
-        res.status(500).json({ message: "Something went wrong during check-in", isError: true, error });
+        console.error("Critical Check-In Error:", error);
+        res.status(500).json({ message: "Server error during clock-in.", isError: true });
     }
 });
 
 router.patch("/check-out/:id", verifyToken, async (req, res) => {
     try {
         const { id: shiftId } = req.params;
-        const { status = "inactive", liveStatus = "checkOut", checkOutTime, timeZone = "UTC" } = cleanObjectValues(req.query);
+        const { latitude, longitude, timeZone = "UTC" } = cleanObjectValues(req.body);
 
+        // 1. Fetch Shift & site
         const shift = await Shifts.findOne({ id: shiftId });
         if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
 
-        // 🕒 Timezone-aware
-        const shiftEnd = dayjs.utc(shift.end).tz(timeZone);
-        const checkOutDate = dayjs.tz(checkOutTime, timeZone);
-
-        let updatedTotalHours = shift.totalHours;
-        let earlyMinutes = 0;
-
-        if (checkOutDate.isBefore(shiftEnd)) {
-            // Early check-out deduction
-            earlyMinutes = shiftEnd.diff(checkOutDate, "minute");
-            const deductedHours = Math.ceil(earlyMinutes / 30) * 0.5;
-            updatedTotalHours = Math.max(shift.totalHours - deductedHours, 0);
+        if (shift.status !== "active") {
+            return res.status(400).json({ message: "Only active shifts can be clocked out.", isError: true });
         }
 
-        const guard = await Users.findOne({ uid: shift.guardId })
+        const site = await Sites.findOne({ id: shift.siteId }).lean();
+        const guard = await Users.findOne({ uid: shift.guardId });
 
-        const totalPay = updatedTotalHours * guard.perHour
+        // 2. Geofence Exit Validation
+        let checkoutGeofenceStatus = "Verified";
+        if (latitude && longitude && site.location) {
+            const distance = getDistance(
+                Number(latitude), Number(longitude),
+                Number(site.location.lat), Number(site.location.lng)
+            );
+            if (distance > (site.clockInRadius || 100)) checkoutGeofenceStatus = "Violation";
+        }
 
+        // 3. Duration & Paid Hours Calculation
+        const actualEndTime = dayjs().toDate();
+        const startTime = dayjs(shift.actualStartTime || shift.start);
+        const endTime = dayjs(actualEndTime);
+
+        const diffMinutes = endTime.diff(startTime, 'minute');
+        const breakMinutes = shift.breakTime || 0;
+        const netMinutes = Math.max(0, diffMinutes - breakMinutes);
+
+        const paidHours = parseFloat((netMinutes / 60).toFixed(2));
+        const totalPayments = parseFloat((paidHours * (guard.perHour || 0)).toFixed(2));
+
+        // 4. Update Shift
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
-            { $set: { status: status, liveStatus: liveStatus, checkOut: checkOutTime, totalHours: updatedTotalHours, totalPayments: totalPay } },
+            {
+                $set: {
+                    status: "Completed",
+                    liveStatus: "checkOut",
+                    checkOut: actualEndTime,
+                    actualEndTime,
+                    clockOutLocation: { lat: Number(latitude), lng: Number(longitude) },
+                    paidHours,
+                    totalPayments,
+                    violationDetails: checkoutGeofenceStatus === "Violation" ? "GEOFENCE_EXIT_VIOLATION" : shift.violationDetails
+                }
+            },
             { new: true }
         );
 
-        const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
         const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email perHours uid');
         const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser }
 
-        if (!updatedShift) { return res.status(404).json({ message: "Shift not found.", isError: true }); }
+        // 5. Real-time Notification
+        req.io.emit('shift_status_updated', {
+            shift: updatedShift,
+            type: 'check_out',
+            message: `Guard ${guardUser.fullName} clocked out. Final Hours: ${paidHours}`
+        });
 
-        req.io.emit('shift_check_out', { shift: updatedShift, type: 'check_Out', message: `Shift Check Out.` });
-        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftFormat, message: `Shift clock-Out`, }); }
+        if (updatedShift.guardId && req.io) {
+            req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftFormat, message: "Clock-out successful." });
+        }
 
-        res.status(200).json({ message: "Check-Out successful and shift updated.", isError: false, shift: shiftFormat });
+        res.status(200).json({
+            message: "Clock-out successful. Shift completed.",
+            isError: false,
+            shift: shiftFormat,
+            paidHours,
+            geofenceStatus: checkoutGeofenceStatus
+        });
 
     } catch (error) {
-        console.error("Check-In Error:", error);
-        res.status(500).json({ message: "Something went wrong during check-in", isError: true, error });
+        console.error("Critical Check-Out Error:", error);
+        res.status(500).json({ message: "Server error during clock-out.", isError: true });
     }
 });
+
+
 
 router.patch("/drop-pin/:id", verifyToken, async (req, res) => {
 

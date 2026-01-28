@@ -17,6 +17,17 @@ const schema = new Schema({
     reason: { type: String, default: "" },
     checkIn: { type: Date, default: null },
     checkOut: { type: Date, default: null },
+    actualStartTime: { type: Date, default: null },
+    actualEndTime: { type: Date, default: null },
+    clockInLocation: {
+        lat: { type: Number },
+        lng: { type: Number }
+    },
+    clockOutLocation: {
+        lat: { type: Number },
+        lng: { type: Number }
+    },
+    isGeofenceVerified: { type: Boolean, default: false },
     locations: {
         type: [{
             longitude: { type: Number },
@@ -28,9 +39,11 @@ const schema = new Schema({
     totalPayments: { type: Number, default: 0 },
     attachments: { type: Schema.Types.Mixed, default: [] },
     liveStatus: { type: String, default: "awaiting" },
-    status: { type: String, default: "Draft", enum: ["Draft", "Published", "Confirmed", "Completed", "pending", "active", "inactive", "request"] }, // Added legacy statuses to prevent breaking
+    status: { type: String, default: "Draft", enum: ["Draft", "Published", "Confirmed", "Completed", "pending", "active", "inactive", "request", "missed"] }, // Added missed status
     isPublished: { type: Boolean, default: false },
     isAcknowledged: { type: Boolean, default: false }, // Guard Acknowledgment
+    punctualityStatus: { type: String, default: null, enum: ["Early", "On-Time", "Late", null] },
+    violationDetails: { type: String, default: null }, // e.g., "GEOFENCE_VIOLATION"
     conflictDetails: { type: Schema.Types.Mixed, default: null },
     qualificationsRequired: { type: [String], default: [] },
     createdBy: { type: String, required: true },
