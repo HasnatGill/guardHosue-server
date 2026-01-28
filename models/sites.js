@@ -10,9 +10,14 @@ const schema = new Schema({
     province: { type: String, required: true, default: "", trim: true },
     city: { type: String, required: true, default: "", trim: true },
     zipCode: { type: String, required: true, trim: true },
-    latitude: { type: String, required: true, trim: true },
-    longitude: { type: String, required: true, trim: true },
-    meters: { type: Number, required: true, trim: true },
+    latitude: { type: String, required: true, trim: true }, // Keeping for backward compatibility
+    longitude: { type: String, required: true, trim: true }, // Keeping for backward compatibility
+    location: {
+        lat: { type: Number, required: true },
+        lng: { type: Number, required: true }
+    },
+    meters: { type: Number, required: true }, // Keeping existing meters field
+    clockInRadius: { type: Number, default: 100 }, // Standardized name
     address: { type: String, required: false, trim: true },
     street_address: { type: String, trim: true, default: "", },
     street_address_1: { type: String, trim: true, default: "", },
@@ -20,6 +25,8 @@ const schema = new Schema({
     status: { type: String, default: "active" },
     createdBy: { type: String, required: true },
 }, { timestamps: true })
+
+schema.index({ location: "2dsphere" });
 
 const Sites = mongoose.model("sites", schema)
 

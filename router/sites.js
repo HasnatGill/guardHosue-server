@@ -13,6 +13,21 @@ router.post("/add", verifyToken, async (req, res) => {
         const { uid } = req;
         let formData = req.body
 
+        // Ensure location object is present and sync with latitude/longitude
+        if (!formData.location) {
+            formData.location = {
+                lat: Number(formData.latitude),
+                lng: Number(formData.longitude)
+            }
+        }
+
+        // Sync meters with clockInRadius
+        if (formData.meters && !formData.clockInRadius) {
+            formData.clockInRadius = Number(formData.meters);
+        } else if (formData.clockInRadius && !formData.meters) {
+            formData.meters = Number(formData.clockInRadius);
+        }
+
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
@@ -119,9 +134,22 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
         const site = await Sites.findOne({ id });
         if (!site) { return res.status(404).json({ message: "Site not found" }) }
 
-        const newData = { ...formData }
+        // Sync location if latitude/longitude provided
+        if (formData.latitude || formData.longitude) {
+            formData.location = {
+                lat: Number(formData.latitude || site.location?.lat || site.latitude),
+                lng: Number(formData.longitude || site.location?.lng || site.longitude)
+            }
+        }
 
-        const updatedSite = await Sites.findOneAndUpdate({ id }, newData, { new: true })
+        // Sync meters with clockInRadius
+        if (formData.meters && !formData.clockInRadius) {
+            formData.clockInRadius = Number(formData.meters);
+        } else if (formData.clockInRadius && !formData.meters) {
+            formData.meters = Number(formData.clockInRadius);
+        }
+
+        const updatedSite = await Sites.findOneAndUpdate({ id }, formData, { new: true })
         if (!updatedSite) { return res.status(404).json({ message: "Site didn't update" }) }
 
 
