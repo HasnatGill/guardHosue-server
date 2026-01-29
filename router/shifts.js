@@ -495,14 +495,27 @@ router.patch("/assign/:id", verifyToken, async (req, res) => {
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id },
-            { $set: { guardId: guardId, status: "Draft", isPublished: false } }, // Reset to Draft on assignment usually, or keep specific flow?
-            // User didn't specify, but "Unfilled" -> "Filled" usually implies ready for review.
-            // Let's assume it keeps current publishing status or defaults to Draft.
-            // User goal: "Full Shift Lifecycle".
+            { $set: { guardId: guardId, status: "Published", isPublished: true } },
             { new: true }
         );
 
-        res.status(200).json({ message: "Guard assigned successfully", isError: false, shift: updatedShift });
+        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName uid');
+        const siteData = await Sites.findOne({ id: updatedShift.siteId }, 'name');
+
+        const shiftToSend = {
+            ...updatedShift.toObject(),
+            name: guardUser ? guardUser.fullName : "UNASSIGNED",
+            site: siteData ? siteData.name : "",
+            startTime: updatedShift.start,
+            endTime: updatedShift.end
+        };
+
+        if (req.io) {
+            req.io.emit('shift_assigned', { shift: shiftToSend, message: `Guard ${guardUser?.fullName} assigned to shift at ${siteData?.name}` });
+            req.io.to(guardId).emit('new_shift_added', { shift: shiftToSend, message: `You have been assigned a new shift at ${siteData?.name}` });
+        }
+
+        res.status(200).json({ message: "Guard assigned successfully", isError: false, shift: shiftToSend });
 
     } catch (error) {
         console.error(error);
@@ -812,6 +825,79 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
     }
 });
 
+router.post("/welfare-ping/:id", verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { latitude, longitude } = req.body;
+
+        if (!latitude || !longitude) {
+            return res.status(400).json({ message: "GPS coordinates required for safety check.", isError: true });
+        }
+
+        const shift = await Shifts.findOne({ id });
+        if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
+
+        const now = new Date();
+        const nextDue = dayjs(now).add(shift.welfare.interval, 'minute').toDate();
+
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id },
+            {
+                $set: {
+                    "welfare.lastPingTime": now,
+                    "welfare.nextPingDue": nextDue,
+                    "welfare.status": "SAFE"
+                },
+                $push: {
+                    locations: {
+                        latitude: Number(latitude),
+                        longitude: Number(longitude),
+                        time: now
+                    }
+                }
+            },
+            { new: true }
+        );
+
+        res.status(200).json({
+            message: "Safety ping confirmed.",
+            isError: false,
+            nextPingDue: nextDue
+        });
+
+    } catch (error) {
+        console.error("Welfare Ping Error:", error);
+        res.status(500).json({ message: "Server error during safety check.", isError: true });
+    }
+});
+
+router.post("/welfare-manual-confirm/:id", verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const shift = await Shifts.findOne({ id });
+        if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
+
+        const now = new Date();
+        const nextDue = dayjs(now).add(shift.welfare.interval, 'minute').toDate();
+
+        await Shifts.findOneAndUpdate(
+            { id },
+            {
+                $set: {
+                    "welfare.lastPingTime": now,
+                    "welfare.nextPingDue": nextDue,
+                    "welfare.status": "SAFE"
+                }
+            }
+        );
+
+        res.status(200).json({ message: "Manual welfare confirmation successful.", isError: false });
+    } catch (error) {
+        console.error("Manual Welfare Error:", error);
+        res.status(500).json({ message: "Server error during manual confirmation.", isError: true });
+    }
+});
+
 router.patch("/check-out/:id", verifyToken, async (req, res) => {
     try {
         const { id: shiftId } = req.params;
@@ -848,7 +934,10 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
         const netMinutes = Math.max(0, diffMinutes - breakMinutes);
 
         const paidHours = parseFloat((netMinutes / 60).toFixed(2));
-        const totalPayments = parseFloat((paidHours * (guard.perHour || 0)).toFixed(2));
+
+        // Snapshot the guard's current rate
+        const baseRate = guard.standardRate || guard.perHour || 0;
+        const totalPay = parseFloat((paidHours * baseRate).toFixed(2));
 
         // 4. Update Shift
         const updatedShift = await Shifts.findOneAndUpdate(
@@ -861,7 +950,13 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
                     actualEndTime,
                     clockOutLocation: { lat: Number(latitude), lng: Number(longitude) },
                     paidHours,
-                    totalPayments,
+                    totalPayments: totalPay, // Legacy field for compatibility
+                    financials: {
+                        baseRate,
+                        totalPay,
+                        isApproved: false,
+                        isPaid: false
+                    },
                     violationDetails: checkoutGeofenceStatus === "Violation" ? "GEOFENCE_EXIT_VIOLATION" : shift.violationDetails
                 }
             },
@@ -975,6 +1070,67 @@ router.post("/upload-attachments/:id", upload.array("files"), async (req, res) =
     } catch (error) {
         console.error("Error uploading attachments:", error);
         res.status(500).json({ message: "Something went wrong", isError: true, error: error.message });
+    }
+});
+
+router.get("/timesheets", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { startDate, endDate, guardId, siteId, timeZone = "UTC" } = req.query;
+
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(401).json({ message: "Unauthorized", isError: true });
+
+        const query = {
+            companyId: user.companyId,
+            status: "Completed",
+            "financials.totalPay": { $exists: true }
+        };
+
+        if (startDate && endDate) {
+            query.actualStartTime = {
+                $gte: dayjs(startDate).startOf('day').toDate(),
+                $lte: dayjs(endDate).endOf('day').toDate()
+            };
+        }
+
+        if (guardId) query.guardId = guardId;
+        if (siteId) query.siteId = siteId;
+
+        const shifts = await Shifts.find(query).sort({ actualStartTime: -1 });
+
+        const enrichedShifts = await Promise.all(shifts.map(async (shift) => {
+            const guard = await Users.findOne({ uid: shift.guardId }, 'fullName uid');
+            const site = await Sites.findOne({ id: shift.siteId }, 'name');
+            return {
+                ...shift.toObject(),
+                key: shift.id,
+                guardName: guard?.fullName || "Unknown Guard",
+                siteName: site?.name || "Unknown Site"
+            };
+        }));
+
+        res.status(200).json({ success: true, timesheets: enrichedShifts });
+    } catch (error) {
+        console.error("Fetch Timesheets Error:", error);
+        res.status(500).json({ message: "Failed to fetch timesheets", isError: true });
+    }
+});
+
+router.patch("/approve-bulk", verifyToken, async (req, res) => {
+    try {
+        const { ids, isApproved } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: "Invalid shift IDs", isError: true });
+
+        const result = await Shifts.updateMany(
+            { id: { $in: ids } },
+            { $set: { "financials.isApproved": isApproved } }
+        );
+
+        res.status(200).json({ success: true, message: `${result.modifiedCount} Timesheets ${isApproved ? 'Approved' : 'Revoked'}`, result });
+    } catch (error) {
+        console.error("Bulk Approve Error:", error);
+        res.status(500).json({ message: "Failed to process bulk approval", isError: true });
     }
 });
 

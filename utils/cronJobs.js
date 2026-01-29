@@ -46,6 +46,45 @@ const initCronJobs = () => {
             console.error('Error in missed clock-in cron job:', error);
         }
     });
+
+    // Welfare & Safety: Run every 1 minute
+    cron.schedule('* * * * *', async () => {
+        console.log('Running Cron: Checking for Welfare Safety Pings...');
+        try {
+            const now = dayjs();
+
+            // Find active shifts where welfare is enabled and ping is overdue
+            // Logic: isEnabled is true, status is active, and now > nextPingDue
+            const overdueShifts = await Shifts.find({
+                status: 'active',
+                'welfare.isEnabled': true,
+                'welfare.nextPingDue': { $lt: now.toDate() },
+                'welfare.status': { $ne: 'OVERDUE' }
+            });
+
+            if (overdueShifts.length > 0) {
+                console.log(`Found ${overdueShifts.length} overdue welfare pings. alerting...`);
+
+                const io = getIO();
+                for (const shift of overdueShifts) {
+                    await Shifts.updateOne(
+                        { id: shift.id },
+                        { $set: { 'welfare.status': 'OVERDUE' } }
+                    );
+
+                    // Emit alert to Admin Dashboard
+                    io.emit('WELFARE_ALERT', {
+                        shiftId: shift.id,
+                        siteName: shift.siteName,
+                        guardName: shift.guardName, // Assuming these fields exist or we need to look them up
+                        message: `SAFETY ALERT: Guard safety check is OVERDUE for ${shift.id}`
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Error in welfare cron job:', error);
+        }
+    });
 };
 
 module.exports = { initCronJobs };

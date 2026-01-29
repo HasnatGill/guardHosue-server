@@ -4,7 +4,7 @@ const { Schema } = mongoose
 const schema = new Schema({
     id: { type: String, required: true, unique: true },
     siteId: { type: String, required: true, ref: "sites" },
-    guardId: { type: String, required: true, ref: "users" },
+    guardId: { type: String, required: false, ref: "users" },
     customerId: { type: String, required: true, ref: "customers" },
     companyId: { type: String, required: true, ref: "companies" },
     start: { type: Date, required: true },
@@ -44,8 +44,21 @@ const schema = new Schema({
     isAcknowledged: { type: Boolean, default: false }, // Guard Acknowledgment
     punctualityStatus: { type: String, default: null, enum: ["Early", "On-Time", "Late", null] },
     violationDetails: { type: String, default: null }, // e.g., "GEOFENCE_VIOLATION"
+    financials: {
+        baseRate: { type: Number, default: 0 },
+        totalPay: { type: Number, default: 0 },
+        isApproved: { type: Boolean, default: false },
+        isPaid: { type: Boolean, default: false }
+    },
     conflictDetails: { type: Schema.Types.Mixed, default: null },
     qualificationsRequired: { type: [String], default: [] },
+    welfare: {
+        isEnabled: { type: Boolean, default: false },
+        interval: { type: Number, default: 60 }, // minutes
+        lastPingTime: { type: Date, default: null },
+        nextPingDue: { type: Date, default: null },
+        status: { type: String, enum: ['SAFE', 'PENDING', 'OVERDUE'], default: 'SAFE' }
+    },
     createdBy: { type: String, required: true },
 }, { timestamps: true })
 

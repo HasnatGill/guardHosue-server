@@ -30,6 +30,7 @@ const schema = new Schema({
     photoURL: { type: String, default: "" },
     photoPublicId: { type: String, default: "" },
     perHour: { type: Number, default: 0 },
+    standardRate: { type: Number, default: 0 },
     lincenceNumber: { type: String, required: true, default: "" },
     licenceExpiryDate: { type: Date, default: null, required: true },
     licenceStatus: { type: String, default: "pending" },
