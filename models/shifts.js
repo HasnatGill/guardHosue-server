@@ -62,6 +62,15 @@ const schema = new Schema({
     createdBy: { type: String, required: true },
 }, { timestamps: true })
 
+// 1. Optimize Welfare Check Cron Job
+// The cron runs every minute querying: { status: 'active', 'welfare.nextPingDue': { $lt: now } }
+schema.index({ status: 1, "welfare.nextPingDue": 1 });
+
+// 2. Optimize Schedule Views & Conflict Checks
+// Used heavily when fetching shifts for specific sites or checking overlaps
+schema.index({ siteId: 1, date: 1 });
+schema.index({ guardId: 1, start: 1, end: 1 }); // Additional optimization for conflict checking
+
 const Shifts = mongoose.model("shifts", schema)
 
 module.exports = Shifts

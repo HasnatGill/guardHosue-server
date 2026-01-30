@@ -24,24 +24,25 @@ dayjs.extend(timezone);
 
 // Helper: Conflict Detection
 const checkShiftConflict = async (guardId, start, end, excludeShiftId = null) => {
-    // Queries overlap using both Date and Time (Full ISO Date Objects)
-    // Logic: (NewStart < ExistingEnd) AND (NewEnd > ExistingStart)
-    const startDate = new Date(start);
-    const endDate = new Date(end);
+    // Convert to Date objects to ensure consistent comparison regardless of input type (string/ISO/Date)
+    const newStart = new Date(start);
+    const newEnd = new Date(end);
 
+    // Standard overlap logic: A shift overlaps if it starts before the new one ends 
+    // AND ends after the new one starts.
     const query = {
         guardId,
         status: { $ne: "cancelled" },
-        $or: [
-            {
-                start: { $lt: endDate },
-                end: { $gt: startDate }
-            }
+        $and: [
+            { start: { $lt: newEnd } },
+            { end: { $gt: newStart } }
         ]
     };
+
     if (excludeShiftId) {
         query.id = { $ne: excludeShiftId };
     }
+
     const conflict = await Shifts.findOne(query);
     return conflict;
 };
@@ -83,22 +84,15 @@ router.post("/add", verifyToken, async (req, res) => {
         const { guardId, start, end, breakTime } = formData;
 
         // 1. Conflict Check
+        console.log("Conflict Check: FromData", formData);
         let conflictError = null;
         if (guardId) {
             const conflict = await checkShiftConflict(guardId, start, end);
             if (conflict) {
                 if (!formData.forceSave) {
-                    return res.status(409).json({
-                        message: "Guard has an overlapping shift.",
-                        isError: true,
-                        conflict: true,
-                        conflictDetails: conflict
-                    });
+                    return res.status(409).json({ message: "Guard has an overlapping shift.", isError: true, conflict: true, conflictDetails: conflict });
                 } else {
-                    conflictError = {
-                        type: "Overlapping Shift",
-                        details: `Forced override. Overlaps with shift ${conflict.id}`
-                    };
+                    conflictError = { type: "Overlapping Shift", details: `Forced override. Overlaps with shift ${conflict.id}` };
                 }
             }
         }
@@ -113,8 +107,6 @@ router.post("/add", verifyToken, async (req, res) => {
         }
 
         const site = await Sites.findOne({ id: formData.siteId }).select('-createdBy -__v -_id')
-
-        // Inherit qualifications if not provided
         const qualificationsRequired = formData.qualificationsRequired || site.requiredSkills || [];
 
         // Calculate hours

@@ -21,7 +21,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Permission denied" });
 
-        let { firstName, lastName, fullName, email, phone, gender, licenceExpiryDate, lincenceNumber, companyId } = req.body;
+        let { firstName, lastName, fullName, email, phone, gender, licenceExpiryDate, lincenceNumber, companyId, role } = req.body;
 
         const existUser = await Users.findOne({ email })
         if (existUser) return res.status(401).json({ message: "This email is already in use", isError: true })
@@ -44,7 +44,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         const newUserUID = getRandomId();
         const token = getRandomId();
 
-        const newUser = new Users({ firstName, lastName, companyId, verifyToken: token, fullName, email, phone, gender, uid: newUserUID, password: null, photoURL, createdBy: uid, lincenceNumber, licenceExpiryDate, photoPublicId });
+        const newUser = new Users({ firstName, lastName, companyId, verifyToken: token, fullName, email, phone, gender, uid: newUserUID, password: null, photoURL, createdBy: uid, lincenceNumber, licenceExpiryDate, photoPublicId, role });
 
         await newUser.save();
 
@@ -154,7 +154,7 @@ router.get("/all", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid }).lean()
         if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        let { status = "", perPage = 10, pageNo = 1, name, phone, email, timeZone } = cleanObjectValues(req.query);
+        let { status = "", perPage = 10, pageNo = 1, name, phone, email, timeZone, role } = cleanObjectValues(req.query);
 
         perPage = Number(perPage);
         pageNo = Number(pageNo);
@@ -174,6 +174,7 @@ router.get("/all", verifyToken, async (req, res) => {
         if (name) { match.fullName = { $regex: new RegExp(name.trim(), "i") }; }
         if (phone) { match.phone = { $regex: new RegExp(phone.trim(), "i") }; }
         if (email) { match.email = { $regex: new RegExp(email.trim(), "i") }; }
+        if (role) { match.role = role; }
 
 
         const result = await Users.aggregate([
@@ -266,7 +267,7 @@ router.get("/all-guards", verifyToken, async (req, res) => {
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
 
-        const { status = "", timeZone = "UTC" } = cleanObjectValues(req.query);
+        const { status = "", timeZone = "UTC", role } = cleanObjectValues(req.query);
 
         let match = {};
 
@@ -279,10 +280,11 @@ router.get("/all-guards", verifyToken, async (req, res) => {
 
         if (status) { match.status = status; }
         if (user.companyId) { match.companyId = user.companyId }
+        if (role) { match.role = role; }
         match.roles = { $in: ["guard"] }
         const guards = await Users.aggregate([
             { $match: match },
-            { $project: { _id: 0, uid: 1, fullName: 1, } }
+            { $project: { _id: 0, uid: 1, fullName: 1, role: 1 } }
         ]);
 
         res.status(200).json({ message: "Guards fetched", isError: false, guards });
