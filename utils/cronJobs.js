@@ -1,26 +1,30 @@
 const cron = require('node-cron');
 const Shifts = require('../models/shifts');
 const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
 const { getIO } = require('../socket');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 /**
  * Initializes background cron jobs for shift management.
  */
 const initCronJobs = () => {
-    // Run every 5 minutes
-    cron.schedule('*/5 * * * *', async () => {
+    // Run every 10 minutes
+    cron.schedule('*/10 * * * *', async () => {
         console.log('Running Cron: Checking for missed clock-ins...');
         try {
-            const now = dayjs().toDate();
-            const gracePeriodLimit = dayjs().subtract(15, 'minute').toDate();
+            // Strict UTC Calculation
+            const gracePeriodLimit = dayjs().utc().subtract(15, 'minute').toDate();
 
-            // Find shifts that are 'Draft' or 'Published' (not checked in yet)
+            // Find shifts that are 'published' or 'awaiting' (accepted but no check-in)
             // whose start time has passed the 15-minute grace period
-            // and haven't been marked as missed/active yet.
             const missedShifts = await Shifts.find({
-                status: { $in: ['Draft', 'Published', 'pending'] },
+                status: { $in: ['published', 'awaiting'] },
                 start: { $lt: gracePeriodLimit },
-                actualStartTime: null
+                actualStartTime: { $eq: null }
             });
 
             if (missedShifts.length > 0) {
@@ -33,12 +37,12 @@ const initCronJobs = () => {
                     { $set: { liveStatus: 'missed', status: 'missed' } }
                 );
 
-                // Notify via Socket
+                // Notify Dashboard via Socket
                 const io = getIO();
                 missedShifts.forEach(shift => {
                     io.emit('shift_missed', {
                         shiftId: shift.id,
-                        message: `Shift ${shift.id} marked as MISSED (No clock-in within grace period).`
+                        message: `Shift ${shift.id} marked as MISSED (No clock-in within 15m).`
                     });
                 });
             }
@@ -51,33 +55,68 @@ const initCronJobs = () => {
     cron.schedule('* * * * *', async () => {
         console.log('Running Cron: Checking for Welfare Safety Pings...');
         try {
-            const now = dayjs();
+            const now = dayjs().utc();
+            const io = getIO();
 
-            // Find active shifts where welfare is enabled and ping is overdue
-            // Logic: isEnabled is true, status is active, and now > nextPingDue
+            // 1. Trigger Welfare Check (SAFE -> PENDING)
+            // Find active shifts where welfare enabled, status is SAFE (or undefined), and time is up
+            const triggerShifts = await Shifts.find({
+                status: 'active',
+                'welfare.isEnabled': true,
+                'welfare.nextPingDue': { $lte: now.toDate() }, // Time is passed
+                'welfare.status': { $in: ['SAFE', 'OK', null, undefined] } // Not already pending or overdue
+            });
+
+            if (triggerShifts.length > 0) {
+                console.log(`Triggering Welfare Check for ${triggerShifts.length} shifts.`);
+                const shiftIds = triggerShifts.map(s => s._id);
+
+                // Update to PENDING
+                await Shifts.updateMany(
+                    { _id: { $in: shiftIds } },
+                    { $set: { 'welfare.status': 'PENDING', 'welfare.lastPingRequest': now.toDate() } }
+                );
+
+                // Notify Mobile Apps
+                triggerShifts.forEach(shift => {
+                    io.to(shift.guardId).emit('WELFARE_CHECK', {
+                        shiftId: shift.id,
+                        message: "Are you safe? Please confirm.",
+                        timeoutMatches: 10 * 60 * 1000 // 10 minutes
+                    });
+
+                    // Also trigger Push Notification as backup
+                    // (Assuming sendPushNotification is available or we rely on socket for now)
+                });
+            }
+
+            // 2. Escalation (PENDING -> OVERDUE)
+            // Find shifts pending for > 10 minutes
+            // 10 mins ago
+            const timeoutThreshold = now.subtract(10, 'minutes').toDate();
+
             const overdueShifts = await Shifts.find({
                 status: 'active',
                 'welfare.isEnabled': true,
-                'welfare.nextPingDue': { $lt: now.toDate() },
-                'welfare.status': { $ne: 'OVERDUE' }
+                'welfare.status': 'PENDING',
+                'welfare.lastPingRequest': { $lte: timeoutThreshold }
             });
 
             if (overdueShifts.length > 0) {
-                console.log(`Found ${overdueShifts.length} overdue welfare pings. alerting...`);
+                console.log(`Found ${overdueShifts.length} OVERDUE welfare pings. Escalating...`);
 
-                const io = getIO();
                 for (const shift of overdueShifts) {
                     await Shifts.updateOne(
                         { id: shift.id },
                         { $set: { 'welfare.status': 'OVERDUE' } }
                     );
 
-                    // Emit alert to Admin Dashboard
-                    io.emit('WELFARE_ALERT', {
+                    // Emit CRITICAL_ALARM to Admin Dashboard
+                    io.emit('WELFARE_ALARM', {
                         shiftId: shift.id,
-                        siteName: shift.siteName,
-                        guardName: shift.guardName, // Assuming these fields exist or we need to look them up
-                        message: `SAFETY ALERT: Guard safety check is OVERDUE for ${shift.id}`
+                        siteName: shift.siteId?.name || "Unknown Site",
+                        guardName: shift.guardId || "Unknown Guard",
+                        message: `CRITICAL: Welfare Check Missed for ${shift.id}`
                     });
                 }
             }

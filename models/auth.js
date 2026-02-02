@@ -44,6 +44,7 @@ const schema = new Schema({
         latitude: { type: Number, default: null },
         longitude: { type: Number, default: null }
     },
+    deviceToken: { type: String, default: "" },
     oneSignalPlayerId: { type: String, default: "" },
     otp: String,
     otpExpires: Date,

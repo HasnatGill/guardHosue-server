@@ -125,6 +125,24 @@ router.patch("/update", verifyToken, async (req, res) => {
     }
 })
 
+router.patch("/update-device-token", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { deviceToken } = req.body;
+
+        if (!deviceToken) {
+            return res.status(400).json({ message: "Device token is required", isError: true });
+        }
+
+        await Users.findOneAndUpdate({ uid }, { $set: { deviceToken } });
+
+        res.status(200).json({ message: "Device token updated successfully", isError: false });
+    } catch (error) {
+        console.error("Update Device Token Error:", error);
+        res.status(500).json({ message: "Internal server error", isError: true });
+    }
+});
+
 router.patch("/change-password", verifyToken, async (req, res) => {
     try {
         const { newPassword } = req.body;
