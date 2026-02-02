@@ -26,13 +26,13 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid });
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const alreadyActiveShift = await Shifts.findOne({ guardId: uid, status: "active" });
+        const alreadyActiveShift = await Shifts.findOne({ guardId: uid, liveStatus: "checkIn" });
         if (alreadyActiveShift) return res.status(400).json({ message: "You are already clocked into another active shift.", isError: true });
 
         const shift = await Shifts.findOne({ id: shiftId });
         if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
 
-        if (shift.status === "active" || shift.status === "Completed") {
+        if (shift.liveStatus === "checkIn" || shift.liveStatus === "checkOut") {
             return res.status(400).json({ message: "Shift is already active or completed.", isError: true });
         }
 
