@@ -102,7 +102,8 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
-        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate, timeZone = "UTC", ref } = cleanObjectValues(req.query);
+        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate, ref } = cleanObjectValues(req.query);
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
         pageNo = Number(pageNo);
         perPage = Number(perPage);
@@ -245,7 +246,8 @@ router.post("/approve", verifyToken, async (req, res) => {
 router.get("/total-hours", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
-        const { startDate, endDate, timeZone } = req.query;
+        const { startDate, endDate } = req.query;
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
         if (!uid) return res.status(400).json({ message: "Unauthorized access." });
 

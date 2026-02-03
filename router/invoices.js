@@ -236,7 +236,8 @@ router.get("/all", verifyToken, async (req, res) => {
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate, timeZone = "UTC" } = cleanObjectValues(req.query);
+        let { pageNo = 1, perPage = 10, status, search, companyId, startDate, endDate } = cleanObjectValues(req.query);
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
         pageNo = Number(pageNo);
         perPage = Number(perPage);
@@ -460,7 +461,8 @@ router.delete("/remove/:id", verifyToken, async (req, res) => {
 // Invoice Tracker Stats
 router.get("/tracker", verifyToken, async (req, res) => {
     try {
-        let { startDate, endDate, timeZone = "UTC" } = cleanObjectValues(req.query);
+        let { startDate, endDate } = cleanObjectValues(req.query);
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
         console.log(startDate, endDate, timeZone);
 

@@ -29,7 +29,7 @@ const app = express()
 app.use(cors({
     origin: [APP_URL_3, APP_URL_1, APP_URL_2, APP_URL],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-timezone'],
     credentials: true,
 }));
 

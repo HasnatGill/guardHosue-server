@@ -12,37 +12,48 @@ dayjs.extend(timezone);
  * Initializes background cron jobs for shift management.
  */
 const initCronJobs = () => {
-    // Run every 10 minutes
-    cron.schedule('*/10 * * * *', async () => {
-        console.log('Running Cron: Checking for missed clock-ins...');
+    // Run every 2 minutes for better responsiveness
+    cron.schedule('*/5 * * * *', async () => {
+        console.log(`[${dayjs().format('HH:mm:ss')}] Running Cron: Checking for missed clock-ins...`);
         try {
-            // Strict UTC Calculation
-            const gracePeriodLimit = dayjs().utc().subtract(15, 'minute').toDate();
-
-            // Find shifts that are 'published' or 'awaiting' (accepted but no check-in)
-            // whose start time has passed the 15-minute grace period
-            const missedShifts = await Shifts.find({
+            // Find shifts that are 'published' or 'accepted' (accepted but no check-in)
+            const potentialMissedShifts = await Shifts.find({
                 status: { $in: ['published', 'accepted'] },
-                start: { $lt: gracePeriodLimit },
-                actualStartTime: { $eq: null }
+                actualStartTime: null
             });
 
-            if (missedShifts.length > 0) {
-                console.log(`Found ${missedShifts.length} missed shifts. Updating...`);
+            const missedShiftIds = [];
+            const missedShiftsData = [];
 
-                const shiftIds = missedShifts.map(s => s._id);
+            for (const shift of potentialMissedShifts) {
+                const tz = shift.timeZone || "UTC";
+                // Get current time in shift's local timezone, then treat that wall-clock time as UTC 
+                // to match how shift.start is stored.
+                const localNowWallClock = dayjs().tz(tz).utc(true);
+                const gracePeriodLimit = localNowWallClock.subtract(15, 'minute');
 
-                await Shifts.updateMany(
-                    { _id: { $in: shiftIds } },
+                if (dayjs(shift.start).isBefore(gracePeriodLimit)) {
+                    missedShiftIds.push(shift._id);
+                    missedShiftsData.push(shift);
+                }
+            }
+
+            if (missedShiftIds.length > 0) {
+                console.log(`Found ${missedShiftIds.length} missed shifts. Updating statuses...`);
+
+                const result = await Shifts.updateMany(
+                    { _id: { $in: missedShiftIds } },
                     { $set: { status: 'missed' } }
                 );
 
+                console.log(`Successfully updated ${result.modifiedCount} shifts to 'missed'.`);
+
                 // Notify Dashboard via Socket
                 const io = getIO();
-                missedShifts.forEach(shift => {
+                missedShiftsData.forEach(shift => {
                     io.emit('shift_missed', {
                         shiftId: shift.id,
-                        message: `Shift ${shift.id} marked as MISSED (No clock-in within 15m).`
+                        message: `Shift ${shift.id} marked as MISSED (No clock-in within 15m of ${dayjs(shift.start).format('HH:mm')}).`
                     });
                 });
             }
@@ -52,78 +63,78 @@ const initCronJobs = () => {
     });
 
     // Welfare & Safety: Run every 1 minute
-    cron.schedule('* * * * *', async () => {
-        console.log('Running Cron: Checking for Welfare Safety Pings...');
-        try {
-            const now = dayjs().utc();
-            const io = getIO();
+    // cron.schedule('* * * * *', async () => {
+    //     console.log(`[${dayjs().format('HH:mm:ss')}] Running Cron: Checking for Welfare Safety Pings...`);
+    //     try {
+    //         const io = getIO();
 
-            // 1. Trigger Welfare Check (SAFE -> PENDING)
-            // Find active shifts where welfare enabled, status is SAFE (or undefined), and time is up
-            const triggerShifts = await Shifts.find({
-                status: 'active',
-                'welfare.isEnabled': true,
-                'welfare.nextPingDue': { $lte: now.toDate() }, // Time is passed
-                'welfare.status': { $in: ['SAFE', 'OK', null, undefined] } // Not already pending or overdue
-            });
+    //         // 1. Trigger Welfare Check (SAFE -> PENDING)
+    //         // Query for active shifts with welfare enabled
+    //         const activeWelfareShifts = await Shifts.find({
+    //             status: 'active',
+    //             'welfare.isEnabled': true,
+    //             'welfare.status': { $in: ['SAFE', 'OK', null, undefined] }
+    //         });
 
-            if (triggerShifts.length > 0) {
-                console.log(`Triggering Welfare Check for ${triggerShifts.length} shifts.`);
-                const shiftIds = triggerShifts.map(s => s._id);
+    //         for (const shift of activeWelfareShifts) {
+    //             if (!shift.welfare?.nextPingDue) continue;
 
-                // Update to PENDING
-                await Shifts.updateMany(
-                    { _id: { $in: shiftIds } },
-                    { $set: { 'welfare.status': 'PENDING', 'welfare.lastPingRequest': now.toDate() } }
-                );
+    //             const tz = shift.timeZone || "UTC";
+    //             const localNowWallClock = dayjs().tz(tz).utc(true);
 
-                // Notify Mobile Apps
-                triggerShifts.forEach(shift => {
-                    io.to(shift.guardId).emit('WELFARE_CHECK', {
-                        shiftId: shift.id,
-                        message: "Are you safe? Please confirm.",
-                        timeoutMatches: 10 * 60 * 1000 // 10 minutes
-                    });
+    //             if (dayjs(shift.welfare.nextPingDue).isBefore(localNowWallClock)) {
+    //                 console.log(`Triggering Welfare Check for shift ${shift.id} (${tz})`);
 
-                    // Also trigger Push Notification as backup
-                    // (Assuming sendPushNotification is available or we rely on socket for now)
-                });
-            }
+    //                 await Shifts.updateOne(
+    //                     { _id: shift._id },
+    //                     {
+    //                         $set: {
+    //                             'welfare.status': 'PENDING',
+    //                             'welfare.lastPingRequest': localNowWallClock.toDate()
+    //                         }
+    //                     }
+    //                 );
 
-            // 2. Escalation (PENDING -> OVERDUE)
-            // Find shifts pending for > 10 minutes
-            // 10 mins ago
-            const timeoutThreshold = now.subtract(10, 'minutes').toDate();
+    //                 io.to(shift.guardId).emit('WELFARE_CHECK', {
+    //                     shiftId: shift.id,
+    //                     message: "Are you safe? Please confirm.",
+    //                     timeoutMatches: 10 * 60 * 1000 // 10 minutes
+    //                 });
+    //             }
+    //         }
 
-            const overdueShifts = await Shifts.find({
-                status: 'active',
-                'welfare.isEnabled': true,
-                'welfare.status': 'PENDING',
-                'welfare.lastPingRequest': { $lte: timeoutThreshold }
-            });
+    //         // 2. Escalation (PENDING -> OVERDUE)
+    //         const pendingShifts = await Shifts.find({
+    //             status: 'active',
+    //             'welfare.isEnabled': true,
+    //             'welfare.status': 'PENDING'
+    //         });
 
-            if (overdueShifts.length > 0) {
-                console.log(`Found ${overdueShifts.length} OVERDUE welfare pings. Escalating...`);
+    //         for (const shift of pendingShifts) {
+    //             const tz = shift.timeZone || "UTC";
+    //             const localNowWallClock = dayjs().tz(tz).utc(true);
+    //             const timeoutThreshold = localNowWallClock.subtract(10, 'minutes');
 
-                for (const shift of overdueShifts) {
-                    await Shifts.updateOne(
-                        { id: shift.id },
-                        { $set: { 'welfare.status': 'OVERDUE' } }
-                    );
+    //             if (dayjs(shift.welfare.lastPingRequest).isBefore(timeoutThreshold)) {
+    //                 console.log(`Welfare check for shift ${shift.id} is OVERDUE (${tz}). Escalating...`);
 
-                    // Emit CRITICAL_ALARM to Admin Dashboard
-                    io.emit('WELFARE_ALARM', {
-                        shiftId: shift.id,
-                        siteName: shift.siteId?.name || "Unknown Site",
-                        guardName: shift.guardId || "Unknown Guard",
-                        message: `CRITICAL: Welfare Check Missed for ${shift.id}`
-                    });
-                }
-            }
-        } catch (error) {
-            console.error('Error in welfare cron job:', error);
-        }
-    });
+    //                 await Shifts.updateOne(
+    //                     { _id: shift._id },
+    //                     { $set: { 'welfare.status': 'OVERDUE' } }
+    //                 );
+
+    //                 io.emit('WELFARE_ALARM', {
+    //                     shiftId: shift.id,
+    //                     siteName: shift.siteId?.name || "Unknown Site",
+    //                     guardName: shift.guardId || "Unknown Guard",
+    //                     message: `CRITICAL: Welfare Check Missed for ${shift.id}`
+    //                 });
+    //             }
+    //         }
+    //     } catch (error) {
+    //         console.error('Error in welfare cron job:', error);
+    //     }
+    // });
 };
 
 module.exports = { initCronJobs };

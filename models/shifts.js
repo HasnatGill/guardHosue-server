@@ -31,6 +31,7 @@ const schema = new Schema({
     punctualityStatus: { type: String, default: null, enum: ["Early", "On-Time", "Late", null] },
     violationDetails: { type: String, default: null },
     conflictDetails: { type: Schema.Types.Mixed, default: null },
+    timeZone: { type: String, default: "UTC" },
     createdBy: { type: String, required: true },
 }, { timestamps: true })
 

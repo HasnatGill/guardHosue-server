@@ -121,7 +121,9 @@ router.post("/add", verifyToken, async (req, res) => {
         // Calculate hours
         const { totalHours, paidHours } = calculateShiftHours(start, end, breakTime);
 
-        const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId, conflictDetails: conflictError, status: "draft", totalHours, paidHours })
+        // Create shift with timezone from header
+        const timeZone = req.headers["x-timezone"] || req.body.timeZone || "UTC";
+        const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId, conflictDetails: conflictError, status: "draft", totalHours, paidHours, timeZone })
         await shift.save()
 
         let shiftObject = shift.toObject();
@@ -354,9 +356,13 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
         // Calculate hours
         const { totalHours, paidHours } = calculateShiftHours(start, end, breakTime);
 
+        const timeZone = req.headers["x-timezone"] || req.body.timeZone;
+        const updatePayload = { start, end, siteId, guardId, status: "draft", breakTime, conflictDetails: conflictError, totalHours, paidHours };
+        if (timeZone) updatePayload.timeZone = timeZone;
+
         const updatedShift = await Shifts.findOneAndUpdate(
             { id },
-            { $set: { start: start, end: end, siteId: siteId, guardId: guardId, status: "draft", breakTime: breakTime, conflictDetails: conflictError, totalHours, paidHours } },
+            { $set: updatePayload },
             { new: true }
         );
 
@@ -462,7 +468,8 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
-        const { status, siteId, guardName, email, date, perPage, pageNo, timeZone } = cleanObjectValues(req.query);
+        const { status, siteId, guardName, email, date, perPage, pageNo } = cleanObjectValues(req.query);
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
         const page = parseInt(pageNo) || 1;
         const limit = parseInt(perPage) || 10;
@@ -634,7 +641,8 @@ router.get("/incidents", verifyToken, async (req, res) => {
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
 
-        const { startDate, endDate, timeZone } = cleanObjectValues(req.query);
+        const { startDate, endDate } = cleanObjectValues(req.query);
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
         const currentTimeUTC = dayjs().tz(timeZone);
 

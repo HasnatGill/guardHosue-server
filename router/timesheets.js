@@ -21,10 +21,12 @@ router.get("/", verifyToken, async (req, res) => {
         if (siteId) query.siteId = siteId;
         if (status) query.status = status;
 
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
+
         if (startDate && endDate) {
             query.startTime = {
-                $gte: dayjs(startDate).startOf('day').toDate(),
-                $lte: dayjs(endDate).endOf('day').toDate()
+                $gte: dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate(),
+                $lte: dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate()
             };
         }
 
@@ -46,11 +48,13 @@ router.get("/stats", verifyToken, async (req, res) => {
         const { companyId, startDate, endDate } = req.query;
         let match = {};
 
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
+
         if (companyId) match.companyId = companyId;
         if (startDate && endDate) {
             match.startTime = {
-                $gte: dayjs(startDate).startOf('day').toDate(),
-                $lte: dayjs(endDate).endOf('day').toDate()
+                $gte: dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate(),
+                $lte: dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate()
             };
         }
 

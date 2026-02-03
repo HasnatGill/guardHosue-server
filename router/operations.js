@@ -24,7 +24,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
-        const { timeZone = "UTC" } = cleanObjectValues(req.query)
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
         const currentTimeUTC = dayjs().tz(timeZone);
         const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
@@ -83,7 +83,8 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
         const { id: shiftId } = req.params;
-        const { latitude, longitude, timeZone = "UTC" } = cleanObjectValues(req.body);
+        const { latitude, longitude } = cleanObjectValues(req.body);
+        const timeZone = req.headers["x-timezone"] || req.body.timeZone || "UTC";
         const { checkInTime } = req.query;
 
         // 1. Guard Identity & Duplicate Check
