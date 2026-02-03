@@ -6,7 +6,8 @@ const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const { verifyToken } = require("../middlewares/auth")
-const { cleanObjectValues } = require("../config/global");
+const { cleanObjectValues, getRandomId } = require("../config/global");
+const Timesheet = require("../models/Timesheet");
 const { getDistance } = require("../utils/locationUtils");
 
 
@@ -14,6 +15,69 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const router = express.Router()
+
+router.get("/live-operations", verifyToken, async (req, res) => {
+    try {
+
+        const { uid } = req
+
+        const user = await Users.findOne({ uid })
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
+
+        const { timeZone = "UTC" } = cleanObjectValues(req.query)
+
+        const currentTimeUTC = dayjs().tz(timeZone);
+        const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
+        const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
+
+        const pipeline = [
+            {
+                $match: {
+                    $or: [
+                        { start: { $gte: startOfDayUTC, $lte: endOfDayUTC } },
+                        { end: { $gte: startOfDayUTC, $lte: endOfDayUTC } },
+                    ],
+                    status: { $in: ["accepted", "missed", "completed", "active"] },
+                }
+            },
+            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteDetails" } },
+            { $unwind: "$siteDetails" },
+            { $lookup: { from: "customers", localField: "siteDetails.customerId", foreignField: "id", as: "customerDetails" } },
+            { $unwind: "$customerDetails" },
+            { $match: { "customerDetails.companyId": user.companyId } },
+            { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
+            { $unwind: { path: "$guardDetails", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 0,
+                    id: "$id",
+                    checkIn: "$checkIn",
+                    customer: "$customerDetails.name",
+                    site: "$siteDetails.name",
+                    name: { $ifNull: ["$guardDetails.fullName", "UNASSIGNED"] },
+                    status: "$status",
+                    startTime: "$start",
+                    endTime: "$end",
+                    locations: "$locations",
+                    checkOut: "$checkOut",
+                    guardId: "$guardId",
+                    isGeofenceVerified: "$isGeofenceVerified",
+                    actualStartTime: "$actualStartTime",
+                    clockInLocation: "$clockInLocation"
+                }
+            },
+        ];
+
+        const shifts = await Shifts.aggregate(pipeline);
+
+        return res.status(200).json({ message: `Live shifts fetched for.`, shifts });
+
+    } catch (error) {
+        console.error("Error fetching live operations:", error);
+        res.status(500).json({ message: "Server error during live operations fetch." });
+    }
+});
+
 
 router.patch("/check-in/:id", verifyToken, async (req, res) => {
     try {
@@ -26,15 +90,13 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid });
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const alreadyActiveShift = await Shifts.findOne({ guardId: uid, liveStatus: "checkIn" });
+        const alreadyActiveShift = await Shifts.findOne({ guardId: uid, status: "active" });
         if (alreadyActiveShift) return res.status(400).json({ message: "You are already clocked into another active shift.", isError: true });
 
         const shift = await Shifts.findOne({ id: shiftId });
         if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
 
-        if (shift.liveStatus === "checkIn" || shift.liveStatus === "checkOut") {
-            return res.status(400).json({ message: "Shift is already active or completed.", isError: true });
-        }
+        if (shift.status === "completed") { return res.status(400).json({ message: "Shift is already active or completed.", isError: true }); }
 
         const site = await Sites.findOne({ id: shift.siteId }).lean();
         if (!site) return res.status(404).json({ message: "Assigned site not found.", isError: true });
@@ -70,8 +132,6 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
             punctualityStatus = "Late";
         }
 
-        // 4. Atomic Status Updates
-        // Save 'now' (Local-as-UTC) as actualStartTime to match database format request
         const actualStartTime = now.toDate();
 
         const updatedShift = await Shifts.findOneAndUpdate(
@@ -79,7 +139,6 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
             {
                 $set: {
                     status: "active",
-                    liveStatus: "checkIn",
                     checkIn: actualStartTime,
                     actualStartTime,
                     clockInLocation: { lat: Number(latitude), lng: Number(longitude) },
@@ -118,7 +177,7 @@ router.post("/accept/:id", verifyToken, async (req, res) => {
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id, guardId: uid },
-            { $set: { status: "active", acceptedAt: dayjs().toDate() } },
+            { $set: { status: "accepted", acceptedAt: dayjs().toDate() } },
             { new: true }
         );
 
@@ -126,7 +185,7 @@ router.post("/accept/:id", verifyToken, async (req, res) => {
 
         if (req.io) { req.io.emit('shift_accepted', { shiftId: id, guardId: uid, message: `Guard has accepted shift ${id}` }); }
 
-        return res.status(200).json({ message: "Shift accepted successfully. Status is now 'awaiting'.", isError: false, shift: updatedShift });
+        return res.status(200).json({ message: "Shift accepted successfully. Status is now 'accepted'.", isError: false, shift: updatedShift });
     } catch (error) {
         console.error("Shift Acceptance Error:", error);
         return res.status(500).json({ message: "An internal server error occurred while accepting the shift.", isError: true, error: error.message });
@@ -161,6 +220,7 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
 
     try {
         const { id: shiftId } = req.params;
+        const { checkOutTime } = req.query;
         const { latitude, longitude, } = cleanObjectValues(req.body);
 
         // 1. Fetch Shift & site
@@ -184,9 +244,6 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
             if (distance > (site.clockInRadius || 100)) checkoutGeofenceStatus = "Violation";
         }
 
-        // 3. Duration & Paid Hours Calculation
-        const { checkOutTime } = req.query;
-        // Trust client time if provided (to match user's device clock), otherwise server time
         const actualEndTime = checkOutTime ? dayjs(checkOutTime).utc().toDate() : dayjs().utc().toDate();
 
         const startTime = dayjs(shift.actualStartTime || shift.start).utc();
@@ -199,28 +256,18 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
 
         const paidHours = parseFloat((netMinutes / 60).toFixed(2));
 
-        // Snapshot the guard's current rate
         const baseRate = guard.standardRate || guard.perHour || 0;
         const totalPay = parseFloat((paidHours * baseRate).toFixed(2));
 
-        // 4. Update Shift
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
             {
                 $set: {
                     status: "completed",
-                    liveStatus: "checkOut",
                     checkOut: actualEndTime,
                     actualEndTime,
                     clockOutLocation: { lat: Number(latitude), lng: Number(longitude) },
                     paidHours,
-                    totalPayments: totalPay, // Legacy field for compatibility
-                    financials: {
-                        baseRate,
-                        totalPay,
-                        isApproved: false,
-                        isPaid: false
-                    },
                     violationDetails: checkoutGeofenceStatus === "Violation" ? "GEOFENCE_EXIT_VIOLATION" : shift.violationDetails
                 }
             },
@@ -237,11 +284,34 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
         req.io.emit('shift_check_out', { shift: shiftFormat, message: eventMessage });
         req.io.emit('shift_status_updated', { shift: updatedShift, type: 'check_out', message: eventMessage });
 
-        if (updatedShift.guardId && req.io) {
-            req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftFormat, message: "Clock-out successful." });
-        }
+        if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftFormat, message: "Clock-out successful." }); }
 
         res.status(200).json({ message: "Clock-out successful. Shift completed.", isError: false, shift: shiftFormat, paidHours, geofenceStatus: checkoutGeofenceStatus });
+
+        // 6. Automated Timesheet Creation
+        try {
+            const timesheetData = {
+                id: getRandomId(),
+                shiftId: updatedShift.id,
+                guardId: updatedShift.guardId,
+                siteId: updatedShift.siteId,
+                companyId: updatedShift.companyId,
+                startTime: updatedShift.actualStartTime,
+                endTime: updatedShift.actualEndTime,
+                totalHours: paidHours, // This is net hours after break in current logic
+                breakTime: updatedShift.breakTime || 0,
+                payableHours: paidHours,
+                hourlyRate: baseRate,
+                totalPay: totalPay,
+                status: 'pending'
+            };
+
+            await Timesheet.create(timesheetData);
+            console.log(`Timesheet created successfully for shift: ${updatedShift.id}`);
+        } catch (tsError) {
+            console.error("Timesheet Creation Error (non-blocking):", tsError);
+            // We don't fail the response if timesheet creation fails, but we log it.
+        }
 
     } catch (error) {
         console.error("Critical Check-Out Error:", error);

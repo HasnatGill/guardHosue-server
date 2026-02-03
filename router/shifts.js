@@ -171,7 +171,7 @@ router.get("/all", verifyToken, async (req, res) => {
                         _id: "$id",
                         name: { $first: "$name" },
                         shifts: {
-                            $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", employeeName: "$guardInfo.fullName", siteName: "$name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" }
+                            $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", employeeName: "$guardInfo.fullName", siteName: "$name", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" }
                         }
                     }
                 },
@@ -213,7 +213,7 @@ router.get("/all", verifyToken, async (req, res) => {
                 {
                     $group: {
                         _id: "$uid", name: { $first: "$fullName" },
-                        shifts: { $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", siteName: "$siteInfo.name", employeeName: "$fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", liveStatus: "$shifts.liveStatus", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" } }
+                        shifts: { $push: { id: "$shifts.id", guardId: "$shifts.guardId", siteId: "$shifts.siteId", breakTime: "$shifts.breakTime", date: "$shifts.date", siteName: "$siteInfo.name", employeeName: "$fullName", start: "$shifts.start", end: "$shifts.end", status: "$shifts.status", totalHours: "$shifts.totalHours", isPublished: "$shifts.isPublished", conflictDetails: "$shifts.conflictDetails", guardRole: "$shifts.guardRole" } }
                     }
                 },
                 {
@@ -290,13 +290,13 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
                 $match: {
                     guardId: uid,
                     date: { $gte: startFilter, $lte: endFilter },
-                    status: { $in: ["published", "awaiting", "active", "completed"] }
+                    status: { $in: ["published", "accepted", "active", "completed"] }
                 }
             },
 
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
             { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
-            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, liveStatus: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", checkIn: 1, } }
+            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", checkIn: 1, } }
         ]);
 
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
@@ -385,87 +385,6 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     }
 });
 
-router.get("/live-operations", verifyToken, async (req, res) => {
-    try {
-
-        const { uid } = req
-
-        const user = await Users.findOne({ uid })
-        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
-
-        const { timeZone = "UTC" } = cleanObjectValues(req.query)
-
-        const currentTimeUTC = dayjs().tz(timeZone);
-        const now = currentTimeUTC.toDate()
-        const startOfDayUTC = currentTimeUTC.startOf('day').utc().toDate()
-        const endOfDayUTC = currentTimeUTC.endOf('day').utc().toDate()
-
-        const pipeline = [
-            {
-                $match: {
-                    $or: [
-                        { start: { $gte: startOfDayUTC, $lte: endOfDayUTC } },
-                        { end: { $gte: startOfDayUTC, $lte: endOfDayUTC } }
-                    ]
-                }
-            },
-            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteDetails" } },
-            { $unwind: "$siteDetails" },
-            { $lookup: { from: "customers", localField: "siteDetails.customerId", foreignField: "id", as: "customerDetails" } },
-            { $unwind: "$customerDetails" },
-            { $match: { "customerDetails.companyId": user.companyId } },
-            { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guardDetails" } },
-            { $unwind: { path: "$guardDetails", preserveNullAndEmptyArrays: true } },
-            {
-                $project: {
-                    _id: 0,
-                    id: "$id",
-                    liveStatus: {
-                        $cond: {
-                            if: { $eq: ["$status", "awaiting"] },
-                            then: "awaiting",
-                            else: {
-                                $cond: {
-                                    if: { $eq: ["$status", "rejected"] },
-                                    then: "rejected",
-                                    else: {
-                                        $cond: {
-                                            if: { $eq: ["$status", "published"] },
-                                            then: "published",
-                                            else: "$liveStatus"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    checkIn: "$checkIn",
-                    customer: "$customerDetails.name",
-                    site: "$siteDetails.name",
-                    name: { $ifNull: ["$guardDetails.fullName", "UNASSIGNED"] },
-                    status: "$status",
-                    startTime: "$start",
-                    endTime: "$end",
-                    locations: "$locations",
-                    checkOut: "$checkOut",
-                    guardId: "$guardId",
-                    isGeofenceVerified: "$isGeofenceVerified",
-                    actualStartTime: "$actualStartTime",
-                    clockInLocation: "$clockInLocation"
-                }
-            },
-        ];
-
-        const shifts = await Shifts.aggregate(pipeline);
-
-        return res.status(200).json({ message: `Live shifts fetched for.`, shifts });
-
-    } catch (error) {
-        console.error("Error fetching live operations:", error);
-        res.status(500).json({ message: "Server error during live operations fetch." });
-    }
-});
-
 router.patch("/assign/:id", verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -527,8 +446,8 @@ const getShiftCounts = async (date, companyId) => {
     const counts = await Shifts.aggregate([{ $match: { end: { $gte: date }, companyId: companyId } }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
     const result = { active: 0, published: 0, rejected: 0, missed: 0 };
     counts.forEach(item => {
-        if (item._id === 'active' || item._id === 'awaiting') result.active += item.count;
-        if (item._id === 'published' || item._id === 'pending' || item._id === 'request') result.published += item.count;
+        if (item._id === 'active' || item._id === 'accepted') result.active += item.count;
+        if (item._id === 'published') result.published += item.count;
         if (item._id === 'rejected') result.rejected += item.count;
         if (item._id === 'missed') result.missed += item.count;
     });
@@ -553,9 +472,9 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
 
         if (status) {
             if (status === "active") {
-                matchQuery.status = { $in: ["active", "awaiting"] };
+                matchQuery.status = { $in: ["active", "accepted"] };
             } else if (status === "published") {
-                matchQuery.status = { $in: ["published", "pending", "request"] };
+                matchQuery.status = "published";
             } else if (status === "rejected") {
                 matchQuery.status = "rejected";
             } else {
@@ -591,7 +510,7 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
                 }
             },
 
-            { $project: { id: '$id', start: '$start', end: '$end', date: '$date', status: '$status', reason: "$reason", liveStatus: '$liveStatus', totalHours: '$totalHours', siteId: '$siteId', siteName: '$siteInfo.name', guardId: '$guardId', guardName: '$guardInfo.fullName', guardEmail: '$guardInfo.email', isPublished: '$isPublished', conflictDetails: '$conflictDetails' } },
+            { $project: { id: '$id', start: '$start', end: '$end', date: '$date', status: '$status', reason: "$reason", totalHours: '$totalHours', siteId: '$siteId', siteName: '$siteInfo.name', guardId: '$guardId', guardName: '$guardInfo.fullName', guardEmail: '$guardInfo.email', isPublished: '$isPublished', conflictDetails: '$conflictDetails' } },
             { $sort: { start: 1 } },
             { $facet: { metadata: [{ $count: "totals" }], data: [{ $skip: skip }, { $limit: limit }] } }
         ];
@@ -764,10 +683,14 @@ router.patch("/publish", verifyToken, async (req, res) => {
         }
 
         const user = await Users.findOne({ uid });
-        const query = { id: { $in: shiftIds }, companyId: user.companyId };
+        const query = {
+            id: { $in: shiftIds },
+            companyId: user.companyId,
+            status: "draft"
+        };
 
         // Update shifts
-        const result = await Shifts.updateMany(query, { $set: { isPublished: true, status: "published" } });
+        const result = await Shifts.updateMany(query, { $set: { status: "published" } });
 
         // Trigger background notifications for each shift
         shiftIds.forEach(id => {

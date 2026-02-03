@@ -174,7 +174,7 @@ router.get("/finance-hourly", verifyToken, async (req, res) => {
         if (!user) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
 
         const { tab, customerId, siteId, guardId, startDate, endDate, } = req.query;
-        const match = { liveStatus: "checkOut", status: "inactive", };
+        const match = { status: "completed" };
 
         if (customerId) match.customerId = customerId;
         if (siteId) match.siteId = siteId;
@@ -262,7 +262,7 @@ router.get("/total-hours", verifyToken, async (req, res) => {
             start = now.startOf("month").toDate();
             end = now.endOf("month").toDate();
         }
-        const shifts = await Shifts.find({ guardId: uid, liveStatus: "checkOut", status: "inactive", date: { $gte: start, $lte: end } });
+        const shifts = await Shifts.find({ guardId: uid, status: "completed", date: { $gte: start, $lte: end } });
         const totalHours = shifts?.reduce((sum, shift) => sum + (shift.totalHours || 0), 0);
 
         return res.json({ guard: { uid: user.uid, fullName: user.fullName, }, totalHours, shiftsCount: shifts.length });

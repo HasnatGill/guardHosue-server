@@ -22,7 +22,7 @@ const initCronJobs = () => {
             // Find shifts that are 'published' or 'awaiting' (accepted but no check-in)
             // whose start time has passed the 15-minute grace period
             const missedShifts = await Shifts.find({
-                status: { $in: ['published', 'awaiting'] },
+                status: { $in: ['published', 'accepted'] },
                 start: { $lt: gracePeriodLimit },
                 actualStartTime: { $eq: null }
             });
@@ -34,7 +34,7 @@ const initCronJobs = () => {
 
                 await Shifts.updateMany(
                     { _id: { $in: shiftIds } },
-                    { $set: { liveStatus: 'missed', status: 'missed' } }
+                    { $set: { status: 'missed' } }
                 );
 
                 // Notify Dashboard via Socket
