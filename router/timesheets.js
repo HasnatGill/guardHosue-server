@@ -30,10 +30,55 @@ router.get("/", verifyToken, async (req, res) => {
             };
         }
 
-        const timesheets = await Timesheet.find(query)
-            .sort({ createdAt: -1 })
-            .populate('guardId', 'fullName email')
-            .populate('siteId', 'name address');
+        const timesheets = await Timesheet.aggregate([
+            { $match: query },
+            { $sort: { createdAt: -1 } },
+            // Lookup Guard
+            {
+                $lookup: {
+                    from: "users",
+                    localField: "guardId",
+                    foreignField: "uid",
+                    as: "guardDetails"
+                }
+            },
+            { $unwind: { path: "$guardDetails", preserveNullAndEmptyArrays: true } },
+            // Lookup Site
+            {
+                $lookup: {
+                    from: "sites",
+                    localField: "siteId",
+                    foreignField: "id",
+                    as: "siteDetails"
+                }
+            },
+            { $unwind: { path: "$siteDetails", preserveNullAndEmptyArrays: true } },
+            // Project to match populate format
+            {
+                $project: {
+                    id: 1,
+                    startTime: 1,
+                    endTime: 1,
+                    totalHours: 1,
+                    breakTime: 1,
+                    payableHours: 1,
+                    hourlyRate: 1,
+                    totalPay: 1,
+                    status: 1,
+                    createdAt: 1,
+                    adminNotes: 1,
+                    guardId: {
+                        fullName: "$guardDetails.fullName",
+                        email: "$guardDetails.email",
+                        uid: "$guardDetails.uid"
+                    },
+                    siteId: {
+                        name: "$siteDetails.name",
+                        address: "$siteDetails.address"
+                    }
+                }
+            }
+        ]);
 
         res.status(200).json({ success: true, count: timesheets.length, data: timesheets });
     } catch (error) {

@@ -325,7 +325,7 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
         const oldGuardId = existingShift.guardId;
 
         // 1. Conflict Check
-        const { start, end, siteId, guardId, breakTime, isPublished, forceSave, qualificationsRequired } = updatedData;
+        const { start, end, siteId, guardId, breakTime, forceSave } = updatedData;
         let conflictError = null;
         if (guardId) {
             const conflict = await checkShiftConflict(guardId, start, end, id);
