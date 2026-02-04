@@ -284,7 +284,7 @@ router.get("/all-guards", verifyToken, async (req, res) => {
         match.roles = { $in: ["guard"] }
         const guards = await Users.aggregate([
             { $match: match },
-            { $project: { _id: 0, uid: 1, fullName: 1, role: 1 } }
+            { $project: { _id: 0, uid: 1, fullName: 1, role: 1, photoURL: 1 } }
         ]);
 
         res.status(200).json({ message: "Guards fetched", isError: false, guards });

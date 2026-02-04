@@ -77,8 +77,8 @@ router.post("/generate", verifyToken, async (req, res) => {
             totalClientBill,
             totalProfit,
             shiftReferenceData: {
-                scheduledStart: shift.start,
-                scheduledEnd: shift.end
+                start: shift.start || shift.scheduledStart,
+                end: shift.end || shift.scheduledEnd
             },
             status: 'pending'
         });
@@ -112,11 +112,49 @@ router.get("/", verifyToken, async (req, res) => {
         }
 
         const timesheets = await Timesheet.find(query)
-            .populate({ path: 'guard', select: 'fullName email photoURL' })
-            .populate({ path: 'site', select: 'name' })
+            .populate({ path: 'guard', select: 'fullName email photoURL uid' })
+            .populate({ path: 'site', select: 'name address' })
+            .populate({ path: 'shift', select: 'start end' })
             .sort({ createdAt: -1 });
 
-        res.status(200).json({ success: true, count: timesheets.length, data: timesheets });
+        // On-the-fly punctuality calculation
+        const enrichedTimesheets = timesheets.map(ts => {
+            const doc = ts.toObject({ virtuals: true });
+
+            // Try to get scheduled start from snapshot or populated shift
+            const scheduledStart = ts.shiftReferenceData?.start || ts.shift?.start;
+            const actualStart = ts.startTime;
+
+            if (scheduledStart && actualStart) {
+                const sStart = dayjs(scheduledStart);
+                const aStart = dayjs(actualStart);
+
+                // Calculate difference in minutes (Positive = Late, Negative = Early)
+                const diff = aStart.diff(sStart, 'minute');
+                doc.lateMinutes = Math.max(0, diff);
+
+                if (diff > 15) {
+                    doc.punctualityStatus = 'Late';
+                } else if (diff > 5) {
+                    doc.punctualityStatus = 'Slightly Late';
+                } else if (diff >= -5) {
+                    doc.punctualityStatus = 'On Time';
+                } else {
+                    doc.punctualityStatus = 'Early';
+                }
+
+                // Suggested hours after deduction
+                const deduction = doc.lateMinutes / 60;
+                doc.autoCalculatedHours = Math.max(0, parseFloat((ts.payableHours - deduction).toFixed(2)));
+            } else {
+                doc.lateMinutes = 0;
+                doc.punctualityStatus = 'Pending Data';
+                doc.autoCalculatedHours = ts.payableHours;
+            }
+            return doc;
+        });
+
+        res.status(200).json({ success: true, count: timesheets.length, data: enrichedTimesheets });
     } catch (error) {
         console.error("Fetch Timesheets Error:", error);
         res.status(500).json({ success: false, message: "Failed to fetch timesheets." });
@@ -392,7 +430,22 @@ router.get("/export", verifyToken, async (req, res) => {
         }
 
         const data = await Timesheet.aggregate(pipeline);
-        res.status(200).json({ success: true, count: data.length, data });
+
+        // Task 4: Enhance Export with Profile Context for Guard
+        let summary = null;
+        if (type === 'guard' && data.length > 0) {
+            const totalHours = data.reduce((acc, curr) => acc + (curr.TotalHours || 0), 0);
+            const totalPay = data.reduce((acc, curr) => acc + (curr.TotalPay || 0), 0);
+            summary = {
+                "Guard Name": data[0].GuardName,
+                "UID": id,
+                "Period": match.startTime ? `${dayjs(match.startTime.$gte).format('YYYY-MM-DD')} to ${dayjs(match.startTime.$lte).format('YYYY-MM-DD')}` : "All Time",
+                "Total Worked Hours": totalHours.toFixed(2),
+                "Total Earnings": `£${totalPay.toFixed(2)}`
+            };
+        }
+
+        res.status(200).json({ success: true, count: data.length, data, summary });
 
     } catch (error) {
         console.error("Export Error:", error);

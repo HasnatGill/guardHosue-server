@@ -30,8 +30,8 @@ const timesheetSchema = new Schema({
 
     // Snapshot of shift data for performance
     shiftReferenceData: {
-        scheduledStart: { type: Date },
-        scheduledEnd: { type: Date }
+        start: { type: Date },
+        end: { type: Date }
     },
 
     approvalDetails: {
