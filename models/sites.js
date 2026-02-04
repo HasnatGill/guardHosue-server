@@ -21,6 +21,7 @@ const schema = new Schema({
     address: { type: String, required: false, trim: true },
     street_address: { type: String, trim: true, default: "", },
     street_address_1: { type: String, trim: true, default: "", },
+    clientChargeRate: { type: Number, default: 0 }, // Added for financial tracking
     requiredSkills: { type: [String], default: [] },
     status: { type: String, default: "active" },
     createdBy: { type: String, required: true },

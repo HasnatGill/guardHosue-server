@@ -76,6 +76,7 @@ app.use("/taxes", taxes)
 app.use("/incidents", incidents)
 app.use("/operations", operations)
 app.use("/timesheets", timesheets)
+app.use("/reports", require("./router/timesheetReports"))
 
 server.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Server + Socket.IO running on PORT ${PORT} : ${HOST}`)

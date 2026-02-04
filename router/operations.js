@@ -291,6 +291,11 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
 
         // 6. Automated Timesheet Creation
         try {
+            const guardPayRate = baseRate;
+            const clientChargeRate = site.clientChargeRate || 0;
+            const totalClientBill = parseFloat((paidHours * clientChargeRate).toFixed(2));
+            const totalProfit = parseFloat((totalClientBill - totalPay).toFixed(2));
+
             const timesheetData = {
                 id: getRandomId(),
                 shiftId: updatedShift.id,
@@ -304,6 +309,16 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
                 payableHours: paidHours,
                 hourlyRate: baseRate,
                 totalPay: totalPay,
+
+                // Financial Fields
+                guardPayRate: guardPayRate,
+                clientChargeRate: clientChargeRate,
+                totalGuardPay: totalPay,
+                totalClientBill: totalClientBill,
+                totalProfit: totalProfit,
+                approvalDetails: {}, // Initialize empty
+                exportStatus: false,
+
                 status: 'pending'
             };
 

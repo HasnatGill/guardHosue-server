@@ -14,6 +14,20 @@ const timesheetSchema = new Schema({
     payableHours: { type: Number, required: true },
     hourlyRate: { type: Number, required: true },
     totalPay: { type: Number, required: true },
+
+    // Financial Tracking Fields
+    guardPayRate: { type: Number, required: true },
+    clientChargeRate: { type: Number, required: true },
+    totalGuardPay: { type: Number, required: true },
+    totalClientBill: { type: Number, required: true },
+    totalProfit: { type: Number }, // derived
+    approvalDetails: {
+        approvedBy: String,
+        approvedAt: Date,
+        ipAddress: String
+    },
+    exportStatus: { type: Boolean, default: false },
+
     status: {
         type: String,
         enum: ['pending', 'approved', 'disputed'],
