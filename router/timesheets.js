@@ -52,11 +52,7 @@ router.post("/generate", verifyToken, async (req, res) => {
         const payableHours = parseFloat((payableMinutes / 60).toFixed(2));
 
         const guardPayRate = guard.perHour || 0;
-        const clientChargeRate = site.clientChargeRate || 0;
-
         const totalGuardPay = parseFloat((payableHours * guardPayRate).toFixed(2));
-        const totalClientBill = parseFloat((payableHours * clientChargeRate).toFixed(2));
-        const totalProfit = parseFloat((totalClientBill - totalGuardPay).toFixed(2));
 
         const newTimesheet = new Timesheet({
             id: getRandomId(),
@@ -72,10 +68,7 @@ router.post("/generate", verifyToken, async (req, res) => {
             hourlyRate: guardPayRate,
             totalPay: totalGuardPay,
             guardPayRate,
-            clientChargeRate,
             totalGuardPay,
-            totalClientBill,
-            totalProfit,
             shiftReferenceData: {
                 start: shift.start || shift.scheduledStart,
                 end: shift.end || shift.scheduledEnd
@@ -174,7 +167,7 @@ router.patch("/update-financials/:id", verifyToken, async (req, res) => {
         if (adminNotes !== undefined) updateData.adminNotes = adminNotes;
         if (status !== undefined) updateData.status = status;
 
-        // Determine hours to use for all calculations
+        // Determine hours to use for calculations
         const hoursToUse = adjustedTotalHours !== undefined ? (parseFloat(adjustedTotalHours) || 0) :
             (timesheet.manualAdjustment?.adjustedTotalHours ?? timesheet.payableHours ?? 0);
 
@@ -194,29 +187,13 @@ router.patch("/update-financials/:id", verifyToken, async (req, res) => {
             updateData.totalPay = updateData.totalGuardPay;
         }
 
-        // Handle Charge Rate change OR Hours change (affects Client Bill)
-        if (clientChargeRate !== undefined || adjustedTotalHours !== undefined) {
-            const chargeToUse = clientChargeRate !== undefined ? (parseFloat(clientChargeRate) || 0) : (timesheet.clientChargeRate ?? 0);
-            if (clientChargeRate !== undefined) {
-                updateData.clientChargeRate = chargeToUse;
-            }
-            updateData.totalClientBill = parseFloat((hoursToUse * chargeToUse).toFixed(2)) || 0;
-        }
-
-        // Always recalculate Profit if any financial field changed
-        if (updateData.totalGuardPay !== undefined || updateData.totalClientBill !== undefined || status !== undefined) {
-            const finalGuardPay = updateData.totalGuardPay !== undefined ? updateData.totalGuardPay : (timesheet.totalGuardPay ?? 0);
-            const finalClientBill = updateData.totalClientBill !== undefined ? updateData.totalClientBill : (timesheet.totalClientBill ?? 0);
-            updateData.totalProfit = parseFloat((finalClientBill - finalGuardPay).toFixed(2)) || 0;
-        }
-
         const updatedTimesheet = await Timesheet.findOneAndUpdate(
             { id },
             { $set: updateData },
             { new: true }
         );
 
-        res.status(200).json({ success: true, message: "Financials updated successfully.", data: updatedTimesheet });
+        res.status(200).json({ success: true, message: "Timesheet updated successfully.", data: updatedTimesheet });
 
     } catch (error) {
         console.error("Update Financials Error:", error);
@@ -344,9 +321,6 @@ router.get("/export", verifyToken, async (req, res) => {
                         TotalHours: "$payableHours",
                         PayRate: "$guardPayRate",
                         TotalPay: "$totalPay",
-                        ChargeRate: "$clientChargeRate",
-                        TotalBill: "$totalClientBill",
-                        Profit: "$totalProfit",
                         Status: "$status"
                     }
                 }
@@ -370,8 +344,6 @@ router.get("/export", verifyToken, async (req, res) => {
                         GuardName: { $first: "$guardInfo.fullName" },
                         TotalHours: { $sum: "$payableHours" },
                         TotalPay: { $sum: "$totalPay" },
-                        TotalBill: { $sum: "$totalClientBill" },
-                        TotalProfit: { $sum: "$totalProfit" },
                         ShiftCount: { $sum: 1 }
                     }
                 },
@@ -381,8 +353,6 @@ router.get("/export", verifyToken, async (req, res) => {
                         GuardName: 1,
                         TotalHours: { $round: ["$TotalHours", 2] },
                         TotalPay: { $round: ["$TotalPay", 2] },
-                        TotalBill: { $round: ["$TotalBill", 2] },
-                        TotalProfit: { $round: ["$TotalProfit", 2] },
                         ShiftCount: 1
                     }
                 }
@@ -410,8 +380,6 @@ router.get("/export", verifyToken, async (req, res) => {
                         SiteName: { $first: "$siteInfo.name" },
                         TotalHours: { $sum: "$payableHours" },
                         TotalPay: { $sum: "$totalPay" },
-                        TotalBill: { $sum: "$totalClientBill" },
-                        TotalProfit: { $sum: "$totalProfit" },
                         ShiftCount: { $sum: 1 }
                     }
                 },
@@ -421,8 +389,6 @@ router.get("/export", verifyToken, async (req, res) => {
                         SiteName: 1,
                         TotalHours: { $round: ["$TotalHours", 2] },
                         TotalPay: { $round: ["$TotalPay", 2] },
-                        TotalBill: { $round: ["$TotalBill", 2] },
-                        TotalProfit: { $round: ["$TotalProfit", 2] },
                         ShiftCount: 1
                     }
                 }

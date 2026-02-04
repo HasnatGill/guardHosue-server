@@ -73,9 +73,7 @@ router.get("/summary/site-wise", async (req, res) => {
                 $group: {
                     _id: "$siteId",
                     totalHours: { $sum: "$totalHours" },
-                    totalClientBill: { $sum: "$totalClientBill" },
                     totalGuardPay: { $sum: "$totalGuardPay" },
-                    totalProfit: { $sum: "$totalProfit" },
                     siteId: { $first: "$siteId" }
                 }
             },
@@ -94,9 +92,7 @@ router.get("/summary/site-wise", async (req, res) => {
                     siteId: 1,
                     siteName: "$siteDetails.name",
                     totalHours: { $round: ["$totalHours", 2] },
-                    totalClientBill: { $round: ["$totalClientBill", 2] },
-                    totalGuardPay: { $round: ["$totalGuardPay", 2] },
-                    totalProfit: { $round: ["$totalProfit", 2] }
+                    totalGuardPay: { $round: ["$totalGuardPay", 2] }
                 }
             }
         ];
@@ -200,8 +196,6 @@ router.get("/export", async (req, res) => {
                     totalHours: "$totalHours",
                     guardPayRate: "$guardPayRate",
                     totalGuardPay: "$totalGuardPay",
-                    clientChargeRate: "$clientChargeRate",
-                    totalClientBill: "$totalClientBill",
                     status: "$status"
                 }
             }

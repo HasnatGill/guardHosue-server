@@ -291,10 +291,19 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
 
         // 6. Automated Timesheet Creation
         try {
-            const guardPayRate = baseRate;
-            const clientChargeRate = site.clientChargeRate || 0;
-            const totalClientBill = parseFloat((paidHours * clientChargeRate).toFixed(2));
-            const totalProfit = parseFloat((totalClientBill - totalPay).toFixed(2));
+            // New Punctuality Status logic for Timesheet focus
+            const scheduledStart = dayjs(shift.start);
+            const scheduledEnd = dayjs(shift.end);
+            const actualStart = dayjs(updatedShift.actualStartTime);
+            const actualEnd = dayjs(updatedShift.actualEndTime);
+
+            let punctualityStatus = "On-Time";
+            if (actualStart.isAfter(scheduledStart.add(5, 'minute'))) {
+                punctualityStatus = "Late";
+            } else if (actualEnd.isBefore(scheduledEnd.subtract(1, 'minute'))) {
+                // Buffer of 1 min for early departure
+                punctualityStatus = "Early Departure";
+            }
 
             const timesheetData = {
                 id: getRandomId(),
@@ -304,21 +313,24 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
                 companyId: updatedShift.companyId,
                 startTime: updatedShift.actualStartTime,
                 endTime: updatedShift.actualEndTime,
-                totalHours: paidHours, // This is net hours after break in current logic
+                totalHours: paidHours,
                 breakTime: updatedShift.breakTime || 0,
                 payableHours: paidHours,
                 hourlyRate: baseRate,
                 totalPay: totalPay,
 
-                // Financial Fields
-                guardPayRate: guardPayRate,
-                clientChargeRate: clientChargeRate,
-                totalGuardPay: totalPay,
-                totalClientBill: totalClientBill,
-                totalProfit: totalProfit,
-                approvalDetails: {}, // Initialize empty
-                exportStatus: false,
+                // Snapshot for reporting
+                shiftReferenceData: {
+                    start: shift.start,
+                    end: shift.end
+                },
 
+                // Financial Fields (Guard Only)
+                guardPayRate: baseRate,
+                totalGuardPay: totalPay,
+
+                approvalDetails: {},
+                exportStatus: false,
                 status: 'pending'
             };
 

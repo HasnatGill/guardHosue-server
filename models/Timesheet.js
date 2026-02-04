@@ -17,10 +17,7 @@ const timesheetSchema = new Schema({
 
     // Financial Tracking Fields
     guardPayRate: { type: Number, required: true },
-    clientChargeRate: { type: Number, required: true },
     totalGuardPay: { type: Number, required: true },
-    totalClientBill: { type: Number, required: true },
-    totalProfit: { type: Number, default: 0 }, // Calculate as (totalClientBill - totalGuardPay)
 
     // Manual Adjustments
     manualAdjustment: {
