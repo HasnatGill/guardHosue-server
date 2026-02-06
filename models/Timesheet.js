@@ -21,8 +21,8 @@ const timesheetSchema = new Schema({
 
     // Manual Adjustments
     manualAdjustment: {
-        adjustedTotalHours: { type: Number }, // If admin manually edits hours
-        adjustedTotalPay: { type: Number } // If admin manually edits pay
+        adjustedTotalHours: { type: Number },
+        adjustedTotalPay: { type: Number }
     },
 
     // Snapshot of shift data for performance

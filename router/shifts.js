@@ -3,6 +3,7 @@ const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
 const Customers = require("../models/customers")
 const Users = require("../models/auth")
+const Incident = require("../models/Incident");
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
@@ -391,48 +392,6 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
     }
 });
 
-router.patch("/assign/:id", verifyToken, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { uid } = req;
-        const { guardId } = req.body;
-
-        if (!uid) return res.status(401).json({ message: "Unauthorized access.", isError: true });
-
-        const shift = await Shifts.findOne({ id });
-        if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
-
-        // Conflict detection (optional but recommended)
-        const conflict = await checkShiftConflict(guardId, shift.start, shift.end, id);
-        if (conflict) { return res.status(409).json({ message: "Guard has an overlapping shift.", isError: true, conflict: true }); }
-
-        const updatedShift = await Shifts.findOneAndUpdate(
-            { id },
-            { $set: { guardId: guardId, status: "published", isPublished: true } },
-            { new: true }
-        );
-
-        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName uid');
-        const siteData = await Sites.findOne({ id: updatedShift.siteId }, 'name');
-
-        const shiftToSend = {
-            ...updatedShift.toObject(), name: guardUser ? guardUser.fullName : "UNASSIGNED", site: siteData ? siteData.name : "", startTime: updatedShift.start, endTime: updatedShift.end
-        };
-
-        if (req.io) {
-            req.io.emit('shift_assigned', { shift: shiftToSend, message: `Guard ${guardUser?.fullName} assigned to shift at ${siteData?.name}` });
-            req.io.to(guardId).emit('shift_published', { shift: shiftToSend, message: `You have been assigned a new shift at ${siteData?.name}` });
-            req.io.to(guardId).emit('new_shift_added', { shift: shiftToSend, message: `You have been assigned a new shift at ${siteData?.name}` });
-        }
-
-        res.status(200).json({ message: "Guard assigned successfully", isError: false, shift: shiftToSend });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Something went wrong during assignment", isError: true, error });
-    }
-});
-
 router.delete("/single/:id", verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -566,117 +525,6 @@ router.patch("/drop-pin/:id", verifyToken, async (req, res) => {
     } catch (error) {
         console.error("Error updating location:", error);
         return res.status(500).json({ success: false, message: "Server error occurred while updating location.", error });
-    }
-});
-
-// // Function to upload a file to Cloudinary
-const uploadToCloudinary = (file) => {
-    return new Promise((resolve, reject) => {
-        const resourceType = file.mimetype.startsWith("video/") ? "video" : "image";
-
-        const uploadStream = cloudinary.uploader.upload_stream(
-            { folder: "incidents", resource_type: resourceType },  // Set resource type dynamically
-            (error, result) => {
-                if (error) return reject(error);
-                resolve({
-                    name: file.originalname,
-                    url: result.secure_url,
-                    type: file.mimetype,
-                    publicId: result.public_id
-                });
-            }
-        );
-        uploadStream.end(file.buffer);
-    });
-};
-
-// Route to upload attachments for a donation
-router.post("/upload-attachments/:id", upload.array("files"), async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { incidentType, description, actionTaken, latitude, longitude } = req.body;
-
-        const uploadedFiles = req.files?.length ? await Promise.all(req.files.map(uploadToCloudinary)) : [];
-
-        const newIncident = {
-            incidentType, description, actionTaken,
-            attachments: uploadedFiles,
-            location: { lat: latitude ? Number(latitude) : null, lng: longitude ? Number(longitude) : null },
-            reportedAt: new Date()
-        };
-
-        const updatedShift = await Shifts.findOneAndUpdate(
-            { id },
-            {
-                $push: {
-                    incidents: newIncident,
-                    attachments: { $each: uploadedFiles } // Keep for backward compatibility
-                }
-            },
-            { new: true }
-        );
-
-        const site = await Sites.findOne({ id: updatedShift.siteId }).lean()
-        const guardUser = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
-        const customer = await Customers.findOne({ id: site.customerId })
-        const shiftFormat = { ...updatedShift.toObject(), site, guard: guardUser, customer }
-
-        if (!updatedShift) { return res.status(404).json({ message: "Shift not found", isError: true }); }
-
-        req.io.emit('shift_incident', { shift: shiftFormat, type: 'incident', message: `Incident at ${shiftFormat.site.name}.` });
-        res.status(200).json({ message: "Incidents uploaded successfully", shift: shiftFormat, isError: false });
-
-    } catch (error) {
-        console.error("Error uploading attachments:", error);
-        res.status(500).json({ message: "Something went wrong", isError: true, error: error.message });
-    }
-});
-
-router.get("/incidents", verifyToken, async (req, res) => {
-    try {
-
-        const { uid } = req
-
-        const user = await Users.findOne({ uid })
-        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
-
-
-        const { startDate, endDate } = cleanObjectValues(req.query);
-        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
-
-        const currentTimeUTC = dayjs().tz(timeZone);
-
-        let start = currentTimeUTC.startOf("day").toDate();
-        let end = currentTimeUTC.endOf("day").toDate();
-
-        if (startDate && endDate) {
-            start = dayjs(startDate).startOf("day").toDate();
-            end = dayjs(endDate).endOf("day").toDate();
-        }
-        const data = await Shifts.aggregate([
-            {
-                $match: {
-                    companyId: user.companyId,
-                    attachments: { $exists: true, $not: { $size: 0 } },
-                    $or: [
-                        { start: { $gte: start, $lte: end } },
-                        { end: { $gte: start, $lte: end } }
-                    ]
-                }
-            },
-            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
-            { $unwind: "$site" },
-            { $lookup: { from: "customers", localField: "customerId", foreignField: "id", as: "customer" } },
-            { $unwind: "$customer" },
-            { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guard" } },
-            { $unwind: "$guard" },
-            { $project: { customer: "$customer.name", name: "$site.name", fullName: "$guard.fullName", address: "$site.address", date: "$date", attachments: 1 } }
-        ]);
-
-        res.status(200).json({ incidents: data, total: data.length });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Something went wrong" });
     }
 });
 

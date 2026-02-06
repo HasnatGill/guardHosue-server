@@ -1,5 +1,5 @@
 const express = require("express");
-const Incidents = require("../models/incidents");
+const Incident = require("../models/Incident");
 const Shifts = require("../models/shifts"); // To link back if needed
 const Users = require("../models/auth");
 const Sites = require("../models/sites");
@@ -16,13 +16,16 @@ const upload = multer({ storage });
 // Helper to upload to Cloudinary
 const uploadToCloudinary = (file) => {
     return new Promise((resolve, reject) => {
+        const resourceType = file.mimetype.startsWith("video/") ? "video" : "image";
+
         const uploadStream = cloudinary.uploader.upload_stream(
-            { folder: "incidents", resource_type: "image" },
+            { folder: "incidents", resource_type: resourceType },  // Set resource type dynamically
             (error, result) => {
                 if (error) return reject(error);
                 resolve({
                     name: file.originalname,
                     url: result.secure_url,
+                    type: file.mimetype,
                     publicId: result.public_id
                 });
             }
@@ -31,68 +34,102 @@ const uploadToCloudinary = (file) => {
     });
 };
 
-router.post("/report", verifyToken, upload.array("images"), async (req, res) => {
+// Refined Unified Incident Reporting Route
+router.post("/report", verifyToken, upload.fields([
+    { name: 'images', maxCount: 5 },
+    { name: 'video', maxCount: 1 }
+]), async (req, res) => {
     try {
         const { uid } = req;
-        const { shiftId, description, severity = "Medium" } = req.body;
+        const { shiftId, siteId, guardId, incidentType, incidentDescription, details, actionTaken, people, signature, latitude, longitude } = req.body;
+
+        // 1. Validation
+        if (!shiftId || !incidentType) {
+            return res.status(400).json({ message: "Missing required fields (shiftId or incidentType)", isError: true });
+        }
 
         const user = await Users.findOne({ uid });
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        // Retrieve Shift Details
-        const shift = await Shifts.findOne({ id: shiftId });
-        if (!shift) return res.status(404).json({ message: "Shift not found relating to this incident.", isError: true });
+        // 2. Handle File Uploads
+        let imageUrls = [];
+        let videoUrl = null;
 
-        // Upload Images
-        let uploadedImages = [];
-        if (req.files && req.files.length > 0) {
-            uploadedImages = await Promise.all(req.files.map(uploadToCloudinary));
+        if (req.files) {
+            if (req.files.images) {
+                const results = await Promise.all(req.files.images.map(uploadToCloudinary));
+                imageUrls = results.map(r => r.url);
+            }
+            if (req.files.video) {
+                const result = await uploadToCloudinary(req.files.video[0]);
+                videoUrl = result.url;
+            }
         }
 
-        const incidentData = {
-            id: getRandomId(),
-            guardId: uid,
-            siteId: shift.siteId,
-            shiftId: shiftId,
-            companyId: user.companyId, // Ensure incident is scoped to company
-            description,
-            severity,
-            images: uploadedImages,
-            createdBy: uid,
-            status: "Open"
-        };
+        // 3. Parse and Map People
+        let parsedPeople = [];
+        if (people) {
+            try {
+                parsedPeople = typeof people === 'string' ? JSON.parse(people) : people;
+            } catch (e) {
+                console.error("Error parsing people field:", e);
+            }
+        }
 
-        const newIncident = new Incidents(incidentData);
+        // 4. Create Record using new Incident model
+        const customId = `INC-${Date.now()}-${getRandomId(4)}`;
+
+        const newIncident = new Incident({
+            id: customId,
+            shiftId,
+            siteId,
+            guardId: guardId || user.uid,
+            companyId: user.companyId,
+            incidentType,
+            incidentDescription,
+            description: details,
+            actionTaken,
+            people: parsedPeople,
+            attachments: imageUrls,
+            video: videoUrl,
+            signature,
+            status: 'pending'
+        });
+
         await newIncident.save();
 
-        // Populate for Socket Payload
-        const guardUser = await Users.findOne({ uid: incidentData.guardId }, 'fullName uid');
-        const siteData = await Sites.findOne({ id: incidentData.siteId }, 'name address');
+        // 5. Link to Shift
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id: shiftId },
+            { $push: { incidents: customId } },
+            { new: true }
+        ).populate('site').populate('guard');
 
-        const incidentPayload = {
-            ...newIncident.toObject(),
-            guardName: guardUser ? guardUser.fullName : "Unknown Guard",
-            siteName: siteData ? siteData.name : "Unknown Site",
-            siteAddress: siteData ? siteData.address : ""
-        };
-
-        // Real-time Event Emission
+        // 6. Socket Notification
         if (req.io) {
+            const site = await Sites.findOne({ id: siteId }, 'name address city province location');
+            const guardUser = await Users.findOne({ uid: guardId || uid }, 'fullName uid phone email photoURL');
+
             req.io.emit('NEW_INCIDENT', {
-                incident: incidentPayload,
-                message: `New ${severity} Severity Incident Reported by ${incidentPayload.guardName}`
+                incident: {
+                    ...newIncident.toObject(),
+                    guard: guardUser,
+                    site: site,
+                    shift: updatedShift
+                },
+                message: `New Incident reported at ${site?.name || 'Site'}`
             });
         }
 
         res.status(201).json({
-            message: "Incident reported successfully.",
+            message: "Incident reported successfully",
             isError: false,
-            incident: incidentPayload
+            incident: newIncident
         });
 
     } catch (error) {
-        console.error("Incident Reporting Error:", error);
-        res.status(500).json({ message: "Something went wrong while reporting incident.", isError: true, error: error.message });
+        console.error("Incident Route Error:", error);
+        res.status(500).json({ message: "Something went wrong while saving incident", isError: true, error: error.message });
     }
 });
 
@@ -105,24 +142,15 @@ router.get("/all", verifyToken, async (req, res) => {
         const { limit = 20, page = 1 } = req.query;
         const skip = (page - 1) * limit;
 
-        const incidents = await Incidents.aggregate([
-            { $match: { companyId: user.companyId } },
-            { $sort: { createdAt: -1 } },
-            { $skip: parseInt(skip) },
-            { $limit: parseInt(limit) },
-            { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guard" } },
-            { $unwind: { path: "$guard", preserveNullAndEmptyArrays: true } },
-            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
-            { $unwind: { path: "$site", preserveNullAndEmptyArrays: true } },
-            {
-                $project: {
-                    id: 1, description: 1, severity: 1, status: 1, images: 1, createdAt: 1,
-                    guardName: "$guard.fullName",
-                    siteName: "$site.name"
-                }
-            }
-        ]);
+        const incidents = await Incident.find()
+            .sort({ createdAt: -1 })
+            .skip(parseInt(skip))
+            .limit(parseInt(limit))
+            .populate('guard', 'fullName email phone roles photoURL')
+            .populate('site', 'name address city province location')
+            .populate('shift');
 
+        console.log(incidents)
         res.status(200).json({ incidents, isError: false });
 
     } catch (error) {

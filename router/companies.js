@@ -13,7 +13,7 @@ const dayjs = require("dayjs");
 
 const router = express.Router()
 
-const { APP_URL } = process.env
+const { APP_URL_1 } = process.env
 
 const getAdminSetupHtml = (verifyUrl) => `<!DOCTYPE html>
 <html>
@@ -71,7 +71,7 @@ const getAdminSetupHtml = (verifyUrl) => `<!DOCTYPE html>
 </html>`;
 
 const sendAdminSetupEmail = async (email, token) => {
-  const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${email}`;
+  const verifyUrl = `${APP_URL_1}/auth/set-password?token=${token}&email=${email}`;
   await sendMail(email, "Set admin profile password for Security Matrix AI", getAdminSetupHtml(verifyUrl));
 };
 

@@ -26,6 +26,7 @@ const schema = new Schema({
     locations: { type: [{ longitude: { type: Number }, latitude: { type: Number }, time: { type: Date, default: null } }], default: [] },
     totalPayments: { type: Number, default: 0 },
     attachments: { type: Schema.Types.Mixed, default: [] },
+    incidents: { type: [String], default: [] },
     rejectionReason: { type: String, default: "" },
     status: { type: String, default: "draft", enum: ["draft", "published", "accepted", "active", "completed", "missed", "rejected", "cancelled"] },
     punctualityStatus: { type: String, default: null, enum: ["Early", "On-Time", "Late", null] },
@@ -39,43 +40,14 @@ const schema = new Schema({
         totalGuardPay: { type: Number, default: 0 },
         totalClientBill: { type: Number, default: 0 }
     }
-}, {
-    timestamps: true,
-    toJSON: { virtuals: true, aliases: true },
-    toObject: { virtuals: true, aliases: true }
-})
+}, { timestamps: true, toJSON: { virtuals: true, aliases: true }, toObject: { virtuals: true, aliases: true } })
 
 // Virtual Population
-schema.virtual('site', {
-    ref: 'sites',
-    localField: 'siteId',
-    foreignField: 'id',
-    justOne: true
-});
+schema.virtual('site', { ref: 'sites', localField: 'siteId', foreignField: 'id', justOne: true });
+schema.virtual('guard', { ref: 'users', localField: 'guardId', foreignField: 'uid', justOne: true });
+schema.virtual('customer', { ref: 'customers', localField: 'customerId', foreignField: 'id', justOne: true });
+schema.virtual('company', { ref: 'companies', localField: 'companyId', foreignField: 'id', justOne: true });
 
-schema.virtual('guard', {
-    ref: 'users',
-    localField: 'guardId',
-    foreignField: 'uid',
-    justOne: true
-});
-
-schema.virtual('customer', {
-    ref: 'customers',
-    localField: 'customerId',
-    foreignField: 'id',
-    justOne: true
-});
-
-schema.virtual('company', {
-    ref: 'companies',
-    localField: 'companyId',
-    foreignField: 'id',
-    justOne: true
-});
-
-// Optimize Schedule Views & Conflict Checks
-// Used heavily when fetching shifts for specific sites or checking overlaps
 schema.index({ siteId: 1, date: 1 });
 schema.index({ guardId: 1, start: 1, end: 1 });
 
