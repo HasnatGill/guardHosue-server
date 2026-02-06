@@ -28,6 +28,7 @@ const schema = new Schema({
     attachments: { type: Schema.Types.Mixed, default: [] },
     incidents: { type: [String], default: [] },
     rejectionReason: { type: String, default: "" },
+    isTimesheetGenerated: { type: Boolean, default: false },
     status: { type: String, default: "draft", enum: ["draft", "published", "accepted", "active", "completed", "missed", "rejected", "cancelled"] },
     punctualityStatus: { type: String, default: null, enum: ["Early", "On-Time", "Late", null] },
     violationDetails: { type: String, default: null },

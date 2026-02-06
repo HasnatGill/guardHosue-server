@@ -154,6 +154,77 @@ router.get("/", verifyToken, async (req, res) => {
     }
 });
 
+// GET /admin-view - Aggregated Grouped View for Dashboard
+router.get("/admin-view", verifyToken, async (req, res) => {
+    try {
+        const { companyId, startDate, endDate, siteId, customerId, guardQuery, status } = req.query;
+        const timeZone = req.headers["x-timezone"] || "UTC";
+
+        let matchStage = {
+            companyId: String(companyId)
+        };
+
+        if (startDate && endDate) {
+            matchStage.startTime = {
+                $gte: dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate(),
+                $lte: dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate()
+            };
+        }
+
+        if (siteId) matchStage.siteId = String(siteId);
+
+        if (status && status !== 'All') {
+            if (status === 'Awaiting Approval') matchStage.status = 'pending';
+            else matchStage.status = status.toLowerCase();
+        }
+
+        const pipeline = [
+            { $match: matchStage },
+            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
+            { $unwind: "$site" },
+            { $lookup: { from: "customers", localField: "site.customerId", foreignField: "id", as: "customer" } },
+            { $unwind: "$customer" },
+            { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guard" } },
+            { $unwind: "$guard" },
+            { $lookup: { from: "shifts", localField: "shiftId", foreignField: "id", as: "shift" } },
+            { $unwind: { path: "$shift", preserveNullAndEmptyArrays: true } }
+        ];
+
+        let postMatch = {};
+        if (customerId) postMatch["customer.id"] = String(customerId);
+        if (guardQuery) postMatch["guard.fullName"] = { $regex: guardQuery, $options: "i" };
+
+        if (Object.keys(postMatch).length > 0) pipeline.push({ $match: postMatch });
+
+        // Ensure shifts are sorted by StartTime before grouping
+        pipeline.push({ $sort: { startTime: 1 } });
+
+        pipeline.push({
+            $group: {
+                _id: "$siteId",
+                siteName: { $first: "$site.name" },
+                clientChargeRate: { $first: "$site.clientChargeRate" },
+                totalShifts: { $sum: 1 },
+                totalPayableHours: { $sum: "$payableHours" },
+                // Use financials.grossClientBilling if exists, else fallback
+                totalBilling: {
+                    $sum: { $ifNull: ["$financials.grossClientBilling", { $multiply: ["$payableHours", { $ifNull: ["$site.clientChargeRate", 0] }] }] }
+                },
+                timesheets: { $push: "$$ROOT" }
+            }
+        });
+
+        pipeline.push({ $sort: { siteName: 1 } });
+
+        const groupedData = await Timesheet.aggregate(pipeline);
+        res.status(200).json({ success: true, data: groupedData });
+
+    } catch (error) {
+        console.error("Admin View Error:", error);
+        res.status(500).json({ success: false, message: "Server Error during aggregation." });
+    }
+});
+
 // PATCH /update-financials/:id - Inline update for manual adjustments
 router.patch("/update-financials/:id", verifyToken, async (req, res) => {
     try {

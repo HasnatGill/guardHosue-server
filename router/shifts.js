@@ -358,7 +358,17 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
         const { totalHours, paidHours } = calculateShiftHours(start, end, breakTime);
 
         const timeZone = req.headers["x-timezone"] || req.body.timeZone;
-        const updatePayload = { start, end, siteId, guardId, status: "draft", breakTime, conflictDetails: conflictError, totalHours, paidHours };
+        const updatePayload = {
+            start,
+            end,
+            siteId,
+            guardId,
+            status: updatedData.status || "draft", // Use provided status or fallback to draft
+            breakTime,
+            conflictDetails: conflictError,
+            totalHours,
+            paidHours
+        };
         if (timeZone) updatePayload.timeZone = timeZone;
 
         const updatedShift = await Shifts.findOneAndUpdate(

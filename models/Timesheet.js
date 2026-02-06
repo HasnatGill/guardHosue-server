@@ -19,16 +19,43 @@ const timesheetSchema = new Schema({
     guardPayRate: { type: Number, required: true },
     totalGuardPay: { type: Number, required: true },
 
-    // Manual Adjustments
-    manualAdjustment: {
-        adjustedTotalHours: { type: Number },
-        adjustedTotalPay: { type: Number }
+    // --- Snapshot (Source of Truth from Shift) ---
+    snapshot: {
+        scheduledStart: { type: Date },
+        scheduledEnd: { type: Date },
+        guardPayRate: { type: Number },
+        clientChargeRate: { type: Number, default: 0 }
     },
 
-    // Snapshot of shift data for performance
-    shiftReferenceData: {
-        start: { type: Date },
-        end: { type: Date }
+    // --- Actuals (From Operations) ---
+    actuals: {
+        actualStart: { type: Date, required: true },
+        actualEnd: { type: Date, required: true },
+        totalBreakMinutes: { type: Number, default: 0 }
+    },
+
+    // --- Variance & Calculations ---
+    varianceMinutes: { type: Number, default: 0 }, // (Actual End - Actual Start) - (Scheduled End - Scheduled Start)
+
+    // --- Financials ---
+    financials: {
+        payableHours: { type: Number, required: true },
+        grossGuardPay: { type: Number, required: true },
+        grossClientBilling: { type: Number, default: 0 },
+        marginPercentage: { type: Number, default: 0 }
+    },
+
+    // --- Manual Adjustments ---
+    manualAdjustment: {
+        adjustedTotalHours: { type: Number },
+        adjustedTotalPay: { type: Number },
+        reason: { type: String }
+    },
+
+    // --- Audit Trail ---
+    audit: {
+        isProcessedForPayroll: { type: Boolean, default: false },
+        payrollId: { type: String, ref: 'paysheets', default: null }
     },
 
     approvalDetails: {
@@ -40,7 +67,7 @@ const timesheetSchema = new Schema({
 
     status: {
         type: String,
-        enum: ['pending', 'approved', 'disputed'],
+        enum: ['pending', 'approved', 'disputed', 'processed'],
         default: 'pending'
     },
     adminNotes: { type: String, default: "" }

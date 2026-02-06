@@ -1,6 +1,8 @@
 const express = require("express")
+const mongoose = require("mongoose");
 const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
+const Customers = require("../models/customers")
 const Users = require("../models/auth")
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
@@ -15,6 +17,120 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const router = express.Router()
+
+// --- Helper: Create Verified Timesheet ---
+const createVerifiedTimesheet = async (shiftId) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+        const shift = await Shifts.findOne({ id: shiftId }).session(session);
+        if (!shift || shift.isTimesheetGenerated) {
+            await session.abortTransaction();
+            session.endSession();
+            return;
+        }
+
+        const site = await Sites.findOne({ id: shift.siteId }).session(session);
+        const guard = await Users.findOne({ uid: shift.guardId }).session(session);
+
+        const scheduledStart = dayjs(shift.start);
+        const scheduledEnd = dayjs(shift.end);
+        const actualStart = dayjs(shift.actualStartTime);
+        const actualEnd = dayjs(shift.actualEndTime);
+
+        // Calculations
+        const durationMs = actualEnd.diff(actualStart);
+        const durationHours = durationMs / (1000 * 60 * 60);
+        const breakHours = (shift.breakTime || 0) / 60;
+        const payableHours = Math.max(0, parseFloat((durationHours - breakHours).toFixed(2)));
+
+        const guardPayRate = guard.perHour || guard.standardRate || 0;
+        const clientChargeRate = site.clientChargeRate || 0;
+
+        const grossGuardPay = parseFloat((payableHours * guardPayRate).toFixed(2));
+        const grossClientBilling = parseFloat((payableHours * clientChargeRate).toFixed(2));
+        const marginPercentage = grossClientBilling > 0
+            ? parseFloat((((grossClientBilling - grossGuardPay) / grossClientBilling) * 100).toFixed(2))
+            : 0;
+
+        const scheduledMinutes = scheduledEnd.diff(scheduledStart, 'minute');
+        const actualMinutes = actualEnd.diff(actualStart, 'minute');
+        const varianceMinutes = actualMinutes - scheduledMinutes;
+
+        // Auto-Flagging
+        const isLate = actualStart.isAfter(scheduledStart.add(15, 'minute'));
+        const isGeofenceViolated = shift.violationDetails && (shift.violationDetails.includes("GEOFENCE") || shift.violationDetails.includes("VIOLATION"));
+
+        let status = 'pending';
+        let adminNotes = "";
+
+        if (isLate) {
+            adminNotes += "Flagged: Late Start. ";
+        }
+        if (isGeofenceViolated) {
+            adminNotes += "Flagged: Geofence Violation. ";
+        }
+
+        // Create Timesheet
+        const timesheetData = {
+            id: getRandomId(),
+            shiftId: shift.id,
+            guardId: shift.guardId,
+            siteId: shift.siteId,
+            companyId: shift.companyId,
+
+            snapshot: {
+                scheduledStart: shift.start,
+                scheduledEnd: shift.end,
+                guardPayRate: guardPayRate,
+                clientChargeRate: clientChargeRate
+            },
+
+            actuals: {
+                actualStart: shift.actualStartTime,
+                actualEnd: shift.actualEndTime,
+                totalBreakMinutes: shift.breakTime || 0
+            },
+
+            varianceMinutes,
+
+            financials: {
+                payableHours,
+                grossGuardPay,
+                grossClientBilling,
+                marginPercentage
+            },
+
+            status: status,
+            adminNotes: adminNotes.trim(),
+
+            // Legacy / Root Fields (as per schema)
+            guardPayRate: guardPayRate,
+            totalGuardPay: grossGuardPay,
+            startTime: shift.actualStartTime,
+            endTime: shift.actualEndTime,
+            totalHours: parseFloat(durationHours.toFixed(2)),
+            payableHours: payableHours,
+            hourlyRate: guardPayRate,
+            totalPay: grossGuardPay,
+        };
+
+        await Timesheet.create([timesheetData], { session });
+
+        // Update Shift
+        shift.isTimesheetGenerated = true;
+        await shift.save({ session });
+
+        await session.commitTransaction();
+        session.endSession();
+        console.log(`Timesheet created successfully for shift: ${shiftId}`);
+
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        console.error("Error creating verified timesheet:", error);
+    }
+};
 
 router.get("/live-operations", verifyToken, async (req, res) => {
     try {
@@ -156,6 +272,9 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         // 5. Real-time Notification
         const eventMessage = violationFlag ? `Clock-In Alert: Geofence Violation by ${guardUser.fullName}` : `Guard ${guardUser.fullName} clocked in (${punctualityStatus})`;
+
+        // Broadcast to everyone (Dashboard)
+        req.io.emit('shift_check_in', { shift: shiftFormat, message: eventMessage });
         req.io.emit('shift_status_updated', { shift: updatedShift, type: 'check_in', message: eventMessage });
 
         if (updatedShift.guardId && req.io) {
@@ -184,9 +303,25 @@ router.post("/accept/:id", verifyToken, async (req, res) => {
 
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found or you are not authorized to accept it.", isError: true }); }
 
-        if (req.io) { req.io.emit('shift_accepted', { shiftId: id, guardId: uid, message: `Guard has accepted shift ${id}` }); }
+        const site = await Sites.findOne({ id: updatedShift.siteId }).lean();
+        const guard = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
+        const customer = await Customers.findOne({ id: site?.customerId }).lean();
 
-        return res.status(200).json({ message: "Shift accepted successfully. Status is now 'accepted'.", isError: false, shift: updatedShift });
+        const shiftFormat = {
+            ...updatedShift.toObject(),
+            siteName: site?.name || "N/A",
+            site: site?.name || "N/A",
+            guardName: guard?.fullName || "N/A",
+            name: guard?.fullName || "N/A",
+            guardEmail: guard?.email || "N/A",
+            customer: customer?.name || "N/A",
+            startTime: updatedShift.start,
+            endTime: updatedShift.end
+        };
+
+        if (req.io) { req.io.emit('shift_accepted', { shift: shiftFormat, message: `Guard ${guard.fullName} has accepted shift ${id}` }); }
+
+        return res.status(200).json({ message: "Shift accepted successfully. Status is now 'accepted'.", isError: false, shift: shiftFormat });
     } catch (error) {
         console.error("Shift Acceptance Error:", error);
         return res.status(500).json({ message: "An internal server error occurred while accepting the shift.", isError: true, error: error.message });
@@ -208,9 +343,26 @@ router.post("/reject/:id", verifyToken, async (req, res) => {
         );
 
         if (!updatedShift) { return res.status(404).json({ message: "Shift not found or you are not authorized to reject it.", isError: true }); }
-        if (req.io) { req.io.emit('shift_rejected', { shiftId: id, guardId: uid, reason, message: `Guard has rejected shift ${id}` }); }
 
-        return res.status(200).json({ message: "Shift rejected successfully. Status is now 'rejected'.", isError: false });
+        const site = await Sites.findOne({ id: updatedShift.siteId }).lean();
+        const guard = await Users.findOne({ uid: updatedShift.guardId }, 'fullName email uid');
+        const customer = await Customers.findOne({ id: site?.customerId }).lean();
+
+        const shiftFormat = {
+            ...updatedShift.toObject(),
+            siteName: site?.name || "N/A",
+            site: site?.name || "N/A",
+            guardName: guard?.fullName || "N/A",
+            name: guard?.fullName || "N/A",
+            guardEmail: guard?.email || "N/A",
+            customer: customer?.name || "N/A",
+            startTime: updatedShift.start,
+            endTime: updatedShift.end
+        };
+
+        if (req.io) { req.io.emit('shift_rejected', { shift: shiftFormat, reason, message: `Guard ${guard.fullName} has rejected shift ${id}: ${reason}` }); }
+
+        return res.status(200).json({ message: "Shift rejected successfully. Status is now 'rejected'.", isError: false, shift: shiftFormat });
     } catch (error) {
         console.error("Shift Rejection Error:", error);
         return res.status(500).json({ message: "An internal server error occurred while rejecting the shift.", isError: true, error: error.message });
@@ -218,7 +370,6 @@ router.post("/reject/:id", verifyToken, async (req, res) => {
 });
 
 router.patch("/check-out/:id", verifyToken, async (req, res) => {
-
     try {
         const { id: shiftId } = req.params;
         const { checkOutTime } = req.query;
@@ -287,59 +438,10 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
 
         if (updatedShift.guardId && req.io) { req.io.to(updatedShift.guardId).emit('shift_check_out', { shift: shiftFormat, message: "Clock-out successful." }); }
 
+        // 6. Trigger Timesheet Generation (Async)
+        createVerifiedTimesheet(updatedShift.id).catch(err => console.error("Async Timesheet Creation Trigger Error:", err));
+
         res.status(200).json({ message: "Clock-out successful. Shift completed.", isError: false, shift: shiftFormat, paidHours, geofenceStatus: checkoutGeofenceStatus });
-
-        // 6. Automated Timesheet Creation
-        try {
-            // New Punctuality Status logic for Timesheet focus
-            const scheduledStart = dayjs(shift.start);
-            const scheduledEnd = dayjs(shift.end);
-            const actualStart = dayjs(updatedShift.actualStartTime);
-            const actualEnd = dayjs(updatedShift.actualEndTime);
-
-            let punctualityStatus = "On-Time";
-            if (actualStart.isAfter(scheduledStart.add(5, 'minute'))) {
-                punctualityStatus = "Late";
-            } else if (actualEnd.isBefore(scheduledEnd.subtract(1, 'minute'))) {
-                // Buffer of 1 min for early departure
-                punctualityStatus = "Early Departure";
-            }
-
-            const timesheetData = {
-                id: getRandomId(),
-                shiftId: updatedShift.id,
-                guardId: updatedShift.guardId,
-                siteId: updatedShift.siteId,
-                companyId: updatedShift.companyId,
-                startTime: updatedShift.actualStartTime,
-                endTime: updatedShift.actualEndTime,
-                totalHours: paidHours,
-                breakTime: updatedShift.breakTime || 0,
-                payableHours: paidHours,
-                hourlyRate: baseRate,
-                totalPay: totalPay,
-
-                // Snapshot for reporting
-                shiftReferenceData: {
-                    start: shift.start,
-                    end: shift.end
-                },
-
-                // Financial Fields (Guard Only)
-                guardPayRate: baseRate,
-                totalGuardPay: totalPay,
-
-                approvalDetails: {},
-                exportStatus: false,
-                status: 'pending'
-            };
-
-            await Timesheet.create(timesheetData);
-            console.log(`Timesheet created successfully for shift: ${updatedShift.id}`);
-        } catch (tsError) {
-            console.error("Timesheet Creation Error (non-blocking):", tsError);
-            // We don't fail the response if timesheet creation fails, but we log it.
-        }
 
     } catch (error) {
         console.error("Critical Check-Out Error:", error);
