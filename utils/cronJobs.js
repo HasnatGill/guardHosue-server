@@ -1,5 +1,9 @@
 const cron = require('node-cron');
 const Shifts = require('../models/shifts');
+const Timesheet = require('../models/Timesheet');
+const Users = require('../models/auth');
+const Sites = require('../models/sites');
+const { getRandomId } = require('../config/global');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
@@ -35,6 +39,55 @@ const initCronJobs = () => {
                 if (dayjs(shift.start).isBefore(gracePeriodLimit)) {
                     missedShiftIds.push(shift._id);
                     missedShiftsData.push(shift);
+
+                    // Create Automated Timesheet for Missed Shift
+                    try {
+                        const guard = await Users.findOne({ uid: shift.guardId });
+                        const site = await Sites.findOne({ id: shift.siteId });
+
+                        const guardPayRate = guard?.perHour || guard?.standardRate || 0;
+                        const clientChargeRate = site?.clientChargeRate || 0;
+
+                        await Timesheet.create({
+                            id: getRandomId(),
+                            shiftId: shift.id,
+                            guardId: shift.guardId,
+                            siteId: shift.siteId,
+                            companyId: shift.companyId,
+                            startTime: shift.start, // Use scheduled as fallback
+                            endTime: shift.end,     // Use scheduled as fallback
+                            totalHours: 0,
+                            payableHours: 0,
+                            hourlyRate: guardPayRate,
+                            totalPay: 0,
+                            guardPayRate: guardPayRate,
+                            totalGuardPay: 0,
+                            snapshot: {
+                                scheduledStart: shift.start,
+                                scheduledEnd: shift.end,
+                                guardPayRate: guardPayRate,
+                                clientChargeRate: clientChargeRate
+                            },
+                            actuals: {
+                                actualStart: null,
+                                actualEnd: null,
+                                totalBreakMinutes: shift.breakTime || 0
+                            },
+                            financials: {
+                                payableHours: 0,
+                                grossGuardPay: 0,
+                                grossClientBilling: 0,
+                                marginPercentage: 0
+                            },
+                            status: 'missed',
+                            adminNotes: "Missed Shift: No clock-in detected."
+                        });
+
+                        // Mark shift so we don't process it again (though status 'missed' handles this)
+                        await Shifts.updateOne({ _id: shift._id }, { $set: { isTimesheetGenerated: true } });
+                    } catch (tsErr) {
+                        console.error(`Failed to create missed timesheet for shift ${shift.id}:`, tsErr);
+                    }
                 }
             }
 

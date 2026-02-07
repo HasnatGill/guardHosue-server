@@ -153,7 +153,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
                         { start: { $gte: startOfDayUTC, $lte: endOfDayUTC } },
                         { end: { $gte: startOfDayUTC, $lte: endOfDayUTC } },
                     ],
-                    status: { $in: ["accepted", "missed", "completed", "active"] },
+                    status: { $in: ["accepted", "missed", "active",] },
                 }
             },
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteDetails" } },
@@ -409,7 +409,7 @@ router.patch("/check-out/:id", verifyToken, async (req, res) => {
         const paidHours = parseFloat((netMinutes / 60).toFixed(2));
 
         const baseRate = guard.standardRate || guard.perHour || 0;
-        const totalPay = parseFloat((paidHours * baseRate).toFixed(2));
+        // const totalPay = parseFloat((paidHours * baseRate).toFixed(2));
 
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },

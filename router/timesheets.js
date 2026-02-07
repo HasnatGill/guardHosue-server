@@ -157,11 +157,15 @@ router.get("/", verifyToken, async (req, res) => {
 // GET /admin-view - Aggregated Grouped View for Dashboard
 router.get("/admin-view", verifyToken, async (req, res) => {
     try {
-        const { companyId, startDate, endDate, siteId, customerId, guardQuery, status } = req.query;
+        const { uid } = req;
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(401).json({ success: false, message: "Unauthorized access." });
+
+        const { startDate, endDate, siteId, customerId, guardQuery, status } = req.query;
         const timeZone = req.headers["x-timezone"] || "UTC";
 
         let matchStage = {
-            companyId: String(companyId)
+            companyId: String(user.companyId)
         };
 
         if (startDate && endDate) {

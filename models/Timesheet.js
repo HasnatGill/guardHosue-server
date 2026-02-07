@@ -29,8 +29,8 @@ const timesheetSchema = new Schema({
 
     // --- Actuals (From Operations) ---
     actuals: {
-        actualStart: { type: Date, required: true },
-        actualEnd: { type: Date, required: true },
+        actualStart: { type: Date },
+        actualEnd: { type: Date },
         totalBreakMinutes: { type: Number, default: 0 }
     },
 
@@ -67,7 +67,7 @@ const timesheetSchema = new Schema({
 
     status: {
         type: String,
-        enum: ['pending', 'approved', 'disputed', 'processed'],
+        enum: ['pending', 'approved', 'disputed', 'processed', 'missed'],
         default: 'pending'
     },
     adminNotes: { type: String, default: "" }
