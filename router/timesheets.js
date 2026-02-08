@@ -155,6 +155,7 @@ router.get("/", verifyToken, async (req, res) => {
 });
 
 // GET /admin-view - Aggregated Grouped View for Dashboard
+// GET /admin-view - Aggregated Grouped View for Dashboard (Shift-First Architecture)
 router.get("/admin-view", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
@@ -164,12 +165,14 @@ router.get("/admin-view", verifyToken, async (req, res) => {
         const { startDate, endDate, siteId, customerId, guardQuery, status } = req.query;
         const timeZone = req.headers["x-timezone"] || "UTC";
 
+        // 1. Match Shifts (Primary Collection)
         let matchStage = {
-            companyId: String(user.companyId)
+            companyId: String(user.companyId),
+            status: { $nin: ['draft', 'cancelled', 'archived'] } // Exclude draft/cancelled
         };
 
         if (startDate && endDate) {
-            matchStage.startTime = {
+            matchStage.start = {
                 $gte: dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate(),
                 $lte: dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate()
             };
@@ -177,31 +180,82 @@ router.get("/admin-view", verifyToken, async (req, res) => {
 
         if (siteId) matchStage.siteId = String(siteId);
 
-        if (status && status !== 'All') {
-            if (status === 'Awaiting Approval') matchStage.status = 'pending';
-            else matchStage.status = status.toLowerCase();
-        }
-
         const pipeline = [
             { $match: matchStage },
+
+            // 2. Lookup Related Data
+            { $lookup: { from: "timesheets", localField: "id", foreignField: "shiftId", as: "timesheet" } },
+            { $unwind: { path: "$timesheet", preserveNullAndEmptyArrays: true } },
+
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
             { $unwind: "$site" },
             { $lookup: { from: "customers", localField: "site.customerId", foreignField: "id", as: "customer" } },
             { $unwind: "$customer" },
             { $lookup: { from: "users", localField: "guardId", foreignField: "uid", as: "guard" } },
             { $unwind: "$guard" },
-            { $lookup: { from: "shifts", localField: "shiftId", foreignField: "id", as: "shift" } },
-            { $unwind: { path: "$shift", preserveNullAndEmptyArrays: true } }
+
+            // 3. Post-Match Filters (Customer / Guard)
+            // Note: Efficiently done before heavy projection if possible, but fields need to be resolved.
         ];
 
+        // Apply filters early if possible to reduce set
         let postMatch = {};
         if (customerId) postMatch["customer.id"] = String(customerId);
         if (guardQuery) postMatch["guard.fullName"] = { $regex: guardQuery, $options: "i" };
 
+        /* 
+           Status Filtering needs special handling because 'status' might come from Timesheet OR be derived from Shift
+           We'll do it after projection.
+        */
+
         if (Object.keys(postMatch).length > 0) pipeline.push({ $match: postMatch });
 
-        // Ensure shifts are sorted by StartTime before grouping
-        pipeline.push({ $sort: { startTime: 1 } });
+        // 4. Project Unified Structure
+        pipeline.push({
+            $addFields: {
+                // Determine Status: Timesheet Status > Shift Status Logic
+                computedStatus: {
+                    $switch: {
+                        branches: [
+                            { case: { $ifNull: ["$timesheet.status", false] }, then: "$timesheet.status" },
+                            {
+                                case: { $lt: ["$end", new Date()] }, // Past Shift, No Timesheet
+                                then: "overdue" // or 'missed' if you prefer
+                            }
+                        ],
+                        default: "scheduled"
+                    }
+                },
+                // Determine ID: Use Timesheet ID if exists, else Shift ID (prefixed to avoid collision if needed, or raw)
+                rowId: { $ifNull: ["$timesheet.id", "$id"] },
+
+                // Determine Times: Actuals > Scheduled
+                finalStartTime: { $ifNull: ["$timesheet.startTime", "$start"] },
+                finalEndTime: { $ifNull: ["$timesheet.endTime", "$end"] },
+
+                // Determine Hours/Pay
+                finalPayableHours: {
+                    $ifNull: ["$timesheet.payableHours", {
+                        // Calculate Scheduled Hours if no timesheet
+                        $round: [{ $divide: [{ $subtract: ["$end", "$start"] }, 3600000] }, 2]
+                    }]
+                },
+
+                finalTotalPay: { $ifNull: ["$timesheet.totalPay", 0] }, // Standard projection for now
+
+                hasTimesheet: { $cond: [{ $ifNull: ["$timesheet", false] }, true, false] }
+            }
+        });
+
+        // 5. Status Filter (Applied on computed status)
+        if (status && status !== 'All') {
+            if (status === 'Awaiting Approval') pipeline.push({ $match: { computedStatus: 'pending' } });
+            else if (status === 'Scheduled') pipeline.push({ $match: { computedStatus: 'scheduled' } });
+            else pipeline.push({ $match: { computedStatus: status.toLowerCase() } });
+        }
+
+        // 6. Final Grouping (Match Frontend Expectation)
+        pipeline.push({ $sort: { finalStartTime: 1 } });
 
         pipeline.push({
             $group: {
@@ -209,18 +263,35 @@ router.get("/admin-view", verifyToken, async (req, res) => {
                 siteName: { $first: "$site.name" },
                 clientChargeRate: { $first: "$site.clientChargeRate" },
                 totalShifts: { $sum: 1 },
-                totalPayableHours: { $sum: "$payableHours" },
-                // Use financials.grossClientBilling if exists, else fallback
-                totalBilling: {
-                    $sum: { $ifNull: ["$financials.grossClientBilling", { $multiply: ["$payableHours", { $ifNull: ["$site.clientChargeRate", 0] }] }] }
-                },
-                timesheets: { $push: "$$ROOT" }
+                totalPayableHours: { $sum: "$finalPayableHours" },
+                totalBilling: { $sum: "$finalTotalPay" }, // Simplified for now
+                timesheets: {
+                    $push: {
+                        id: "$rowId",
+                        shiftId: "$id",
+                        hasTimesheet: "$hasTimesheet",
+                        status: "$computedStatus",
+                        startTime: "$finalStartTime",
+                        endTime: "$finalEndTime",
+                        payableHours: "$finalPayableHours",
+                        totalPay: "$finalTotalPay",
+                        guard: "$guard",
+                        customer: "$customer",
+                        site: "$site",
+                        // Pass original objects for detailed logic
+                        shift: { start: "$start", end: "$end", breakTime: "$breakTime" },
+                        timesheet: "$timesheet",
+                        snapshot: "$timesheet.snapshot",
+                        actuals: "$timesheet.actuals",
+                        financials: "$timesheet.financials"
+                    }
+                }
             }
         });
 
         pipeline.push({ $sort: { siteName: 1 } });
 
-        const groupedData = await Timesheet.aggregate(pipeline);
+        const groupedData = await Shifts.aggregate(pipeline);
         res.status(200).json({ success: true, data: groupedData });
 
     } catch (error) {
@@ -320,15 +391,33 @@ router.get("/stats", verifyToken, async (req, res) => {
     }
 });
 
-// PATCH /approve/:id - Approve a timesheet (Keeping existing logic)
+// PATCH /approve/:id - Approve a timesheet (with optional updates)
 router.patch("/approve/:id", verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { adminNotes } = req.body;
+        const { adminNotes, startTime, endTime, breakTime, payableHours, totalPay, guardPayRate, calculationPreference } = req.body;
+
+        const updateFields = {
+            status: 'approved',
+            isProcessedForPayroll: true, // Mark for payroll export
+            adminNotes: adminNotes || ""
+        };
+
+        // Allow approving with updated values (if provided)
+        if (startTime) updateFields.startTime = startTime;
+        if (endTime) updateFields.endTime = endTime;
+        if (breakTime !== undefined) updateFields.breakTime = breakTime;
+        if (payableHours !== undefined) updateFields.payableHours = payableHours;
+        if (totalPay !== undefined) updateFields.totalPay = totalPay;
+        if (guardPayRate !== undefined) updateFields.guardPayRate = guardPayRate;
+        if (calculationPreference) updateFields.calculationPreference = calculationPreference;
+
+        // If times change, update financials snapshot if needed? 
+        // For now, we assume the frontend sends the calculated totalPay/payableHours matching the times.
 
         const updatedTimesheet = await Timesheet.findOneAndUpdate(
             { id },
-            { $set: { status: 'approved', adminNotes: adminNotes || "" } },
+            { $set: updateFields },
             { new: true }
         );
 
@@ -336,7 +425,7 @@ router.patch("/approve/:id", verifyToken, async (req, res) => {
             return res.status(404).json({ success: false, message: "Timesheet not found." });
         }
 
-        res.status(200).json({ success: true, message: "Timesheet approved successfully.", data: updatedTimesheet });
+        res.status(200).json({ success: true, message: "Timesheet approved and processed.", data: updatedTimesheet });
     } catch (error) {
         console.error("Approve Timesheet Error:", error);
         res.status(500).json({ success: false, message: "Failed to approve timesheet." });

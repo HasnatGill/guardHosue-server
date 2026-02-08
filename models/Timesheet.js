@@ -70,6 +70,11 @@ const timesheetSchema = new Schema({
         enum: ['pending', 'approved', 'disputed', 'processed', 'missed'],
         default: 'pending'
     },
+    calculationPreference: {
+        type: String,
+        enum: ['scheduled', 'actual', 'manual'],
+        default: 'actual'
+    },
     adminNotes: { type: String, default: "" }
 }, {
     timestamps: true,
