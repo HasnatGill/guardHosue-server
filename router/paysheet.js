@@ -5,21 +5,23 @@ const Timesheet = require("../models/Timesheet");
 const { v4: uuidv4 } = require('uuid');
 const dayjs = require('dayjs');
 
-// Fetch Approved Shifts (that don't have a Paysheet yet)
-router.get("/approved-but-not-generated", async (req, res) => {
+// Get Paysheets (Auto-Sync View)
+router.get("/", async (req, res) => {
     try {
-        const { companyId, startDate, endDate } = req.query;
+        const { companyId, startDate, endDate, guardId, siteId, guardQuery } = req.query;
 
-        if (!companyId) {
-            return res.status(400).json({ message: "Company ID is required" });
-        }
+        if (!companyId) return res.status(400).json({ message: "Company ID required" });
 
-        // 1. Find all approved timesheets for the company and date range
+        // 1. Build Timesheet Query (Status: Approved)
         const query = {
             companyId,
-            status: "approved",
+            status: "approved"
         };
 
+        if (siteId) query.siteId = siteId;
+        if (guardId) query.guardId = guardId;
+
+        // Date Filter on Selected Scheduled Start
         if (startDate && endDate) {
             query.selectedScheduledStart = {
                 $gte: new Date(startDate),
@@ -27,115 +29,72 @@ router.get("/approved-but-not-generated", async (req, res) => {
             };
         }
 
-        const approvedTimesheets = await Timesheet.find(query)
-            .populate('guard')
-            .populate('site');
-
-        // 2. Find existing paysheets to exclude them
-        const existingPaysheets = await Paysheet.find({ companyId }).select('timesheetId');
-        const existingTimesheetIds = new Set(existingPaysheets.map(p => p.timesheetId));
-
-        // 3. Filter out timesheets that already have a paysheet
-        const pendingGeneration = approvedTimesheets.filter(t => !existingTimesheetIds.has(t.id));
-
-        res.json(pendingGeneration);
-    } catch (error) {
-        console.error("Error fetching approved shifts:", error);
-        res.status(500).json({ message: "Server Error" });
-    }
-});
-
-// Bulk Generate Paysheets
-router.post("/bulk-generate", async (req, res) => {
-    try {
-        const { timesheetIds, companyId } = req.body;
-
-        if (!timesheetIds || !timesheetIds.length) {
-            return res.status(400).json({ message: "No timesheets selected" });
-        }
-
-        const timesheets = await Timesheet.find({
-            id: { $in: timesheetIds },
-            companyId: companyId
-        });
-
-        const newPaysheets = [];
-
-        for (const ts of timesheets) {
-            // check if already exists to be safe
-            const exists = await Paysheet.findOne({ timesheetId: ts.id });
-            if (exists) continue;
-
-            // Default rate (could be fetched from Guard profile if it existed there, but for now 0 as per specs)
-            const hourlyRate = 0;
-            const totalEarnings = hourlyRate * ts.selectedPayableHours;
-
-            newPaysheets.push({
-                id: uuidv4(),
-                timesheetId: ts.id,
-                guardId: ts.guardId,
-                siteId: ts.siteId,
-                companyId: ts.companyId,
-                hourlyRate,
-                totalEarnings,
-                status: 'draft'
-            });
-        }
-
-        if (newPaysheets.length > 0) {
-            await Paysheet.insertMany(newPaysheets);
-        }
-
-        res.json({ message: `Successfully generated ${newPaysheets.length} paysheets`, count: newPaysheets.length });
-
-    } catch (error) {
-        console.error("Error bulk generating paysheets:", error);
-        res.status(500).json({ message: "Server Error" });
-    }
-});
-
-// Get Paysheets (Main listing)
-router.get("/", async (req, res) => {
-    try {
-        const { companyId, startDate, endDate, guardId, siteId } = req.query;
-
-        if (!companyId) return res.status(400).json({ message: "Company ID required" });
-
-        const query = { companyId };
-
-        if (guardId) query.guardId = guardId;
-        if (siteId) query.siteId = siteId;
-
-        // Date filtering needs to be done on the *Timesheet's* date, which requires a lookup or population filter.
-        // For simplicity and performance in Mongoose, we usually query Paysheet and populate.
-        // However, standard simplified approach: Fetch paysheets, populate timesheet, then filter in memory 
-        // OR (better) use aggregate.
-
-        // Let's use simple find + populate for now as per typical MERN stack patterns unless volume is huge.
-        // To filter by date properly without massive over-fetching, we should first find relevant timesheets if dates are provided.
-
-        let timesheetFilter = {};
-        if (startDate && endDate) {
-            timesheetFilter = {
-                selectedScheduledStart: {
-                    $gte: new Date(startDate),
-                    $lte: new Date(endDate)
-                }
-            };
-
-            // Find timesheet IDs in this range
-            const relevantTimesheets = await Timesheet.find({ ...timesheetFilter, companyId }).select('id');
-            const relevantIds = relevantTimesheets.map(t => t.id);
-            query.timesheetId = { $in: relevantIds };
-        }
-
-        const paysheets = await Paysheet.find(query)
+        // 2. Fetch Approved Timesheets
+        let timesheets = await Timesheet.find(query)
             .populate('guard')
             .populate('site')
-            .populate('timesheet')
-            .sort({ createdAt: -1 });
+            .sort({ selectedScheduledStart: -1 });
 
-        res.json(paysheets);
+        // Guard Name Search Filter (In-memory if not done via aggregate)
+        if (guardQuery) {
+            const lowerQ = guardQuery.toLowerCase();
+            timesheets = timesheets.filter(t => t.guard?.fullName?.toLowerCase().includes(lowerQ));
+        }
+
+        // 3. Fetch Existing Paysheets for these timesheets
+        const timesheetIds = timesheets.map(t => t.id);
+        const existingPaysheets = await Paysheet.find({ timesheetId: { $in: timesheetIds } });
+        const paysheetMap = new Map(existingPaysheets.map(p => [p.timesheetId, p]));
+
+        // 4. Merge Data & Calculate Summary
+        let totalPayableHours = 0;
+        let totalEstimatedPayroll = 0;
+        let finalizedCount = 0;
+        let pendingCount = 0;
+
+        const mergedData = timesheets.map(ts => {
+            const paysheet = paysheetMap.get(ts.id);
+
+            const hourlyRate = paysheet ? paysheet.hourlyRate : 0;
+            const status = paysheet ? paysheet.status : 'pending';
+            const totalEarnings = paysheet ? paysheet.totalEarnings : 0; // Or calculate: hourlyRate * ts.selectedPayableHours
+
+            // Aggregates
+            totalPayableHours += (ts.selectedPayableHours || 0);
+            totalEstimatedPayroll += (hourlyRate * (ts.selectedPayableHours || 0));
+
+            if (status === 'finalized' || status === 'exported') {
+                finalizedCount++;
+            } else {
+                pendingCount++;
+            }
+
+            return {
+                timesheetId: ts.id, // Primary Key for this view
+                paysheetId: paysheet?.id || null,
+                guard: ts.guard,
+                site: ts.site,
+                shiftDate: ts.selectedScheduledStart,
+                shiftStart: ts.selectedScheduledStart,
+                shiftEnd: ts.selectedScheduledEnd,
+                payableHours: ts.selectedPayableHours,
+                hourlyRate: hourlyRate,
+                totalEarnings: hourlyRate * (ts.selectedPayableHours || 0),
+                status: status,
+                timesheet: ts // Include raw timesheet if needed
+            };
+        });
+
+        res.json({
+            summary: {
+                totalPayableHours,
+                totalEstimatedPayroll,
+                finalizedCount,
+                pendingCount,
+                totalShifts: timesheets.length
+            },
+            data: mergedData
+        });
 
     } catch (error) {
         console.error("Error fetching paysheets:", error);
@@ -144,24 +103,46 @@ router.get("/", async (req, res) => {
 });
 
 
-// Update Rate & Calculate
-router.patch("/update-rate/:id", async (req, res) => {
+// Update Rate & Calculate (Upsert)
+router.patch("/update-rate/:timesheetId", async (req, res) => {
     try {
-        const { id } = req.params;
+        const { timesheetId } = req.params;
         const { hourlyRate } = req.body;
 
-        const paysheet = await Paysheet.findOne({ id }).populate('timesheet');
-        if (!paysheet) return res.status(404).json({ message: "Paysheet not found" });
+        // 1. Try to find existing Paysheet
+        let paysheet = await Paysheet.findOne({ timesheetId });
 
-        if (paysheet.status === 'finalized' || paysheet.status === 'exported') {
-            return res.status(400).json({ message: "Cannot edit finalized paysheets" });
+        // 2. If exists, update
+        if (paysheet) {
+            if (paysheet.status === 'finalized' || paysheet.status === 'exported') {
+                return res.status(400).json({ message: "Cannot edit finalized paysheets" });
+            }
+            paysheet.hourlyRate = Number(hourlyRate);
+
+            // Recalculate earnings based on linked Timesheet (need to fetch if not populated, but easier to just use what we have or re-fetch)
+            // Safer to re-fetch timesheet to get accurate hours
+            const timesheet = await Timesheet.findOne({ id: timesheetId });
+            paysheet.totalEarnings = paysheet.hourlyRate * (timesheet ? timesheet.selectedPayableHours : 0);
+
+            await paysheet.save();
         }
+        // 3. If not, create new
+        else {
+            const timesheet = await Timesheet.findOne({ id: timesheetId });
+            if (!timesheet) return res.status(404).json({ message: "Timesheet not found" });
 
-        paysheet.hourlyRate = Number(hourlyRate);
-        const hours = paysheet.timesheet ? paysheet.timesheet.selectedPayableHours : 0;
-        paysheet.totalEarnings = paysheet.hourlyRate * hours;
-
-        await paysheet.save();
+            paysheet = new Paysheet({
+                id: uuidv4(),
+                timesheetId: timesheetId,
+                guardId: timesheet.guardId,
+                siteId: timesheet.siteId,
+                companyId: timesheet.companyId,
+                hourlyRate: Number(hourlyRate),
+                totalEarnings: Number(hourlyRate) * timesheet.selectedPayableHours,
+                status: 'pending' // 'draft' -> 'pending' to match UI request
+            });
+            await paysheet.save();
+        }
 
         res.json(paysheet);
 
@@ -171,16 +152,38 @@ router.patch("/update-rate/:id", async (req, res) => {
     }
 });
 
-// Finalize
-router.patch("/finalize/:id", async (req, res) => {
+// Finalize (Upsert)
+router.patch("/finalize/:timesheetId", async (req, res) => {
     try {
-        const { id } = req.params;
-        const paysheet = await Paysheet.findOne({ id });
+        const { timesheetId } = req.params;
 
-        if (!paysheet) return res.status(404).json({ message: "Paysheet not found" });
+        // 1. Try to find existing Paysheet
+        let paysheet = await Paysheet.findOne({ timesheetId });
 
-        paysheet.status = 'finalized';
-        await paysheet.save();
+        // 2. If exists, update
+        if (paysheet) {
+            paysheet.status = 'finalized';
+            await paysheet.save();
+        }
+        // 3. If not, create new (implicitly finalize with 0 rate if not set? Or should we block?)
+        // User requirements say "If a Paysheet record... doesn't exist... return default".
+        // If they click finalize on a 0-rate shift, it should probably freeze it as is.
+        else {
+            const timesheet = await Timesheet.findOne({ id: timesheetId });
+            if (!timesheet) return res.status(404).json({ message: "Timesheet not found" });
+
+            paysheet = new Paysheet({
+                id: uuidv4(),
+                timesheetId: timesheetId,
+                guardId: timesheet.guardId,
+                siteId: timesheet.siteId,
+                companyId: timesheet.companyId,
+                hourlyRate: 0, // Default
+                totalEarnings: 0,
+                status: 'finalized'
+            });
+            await paysheet.save();
+        }
 
         res.json(paysheet);
     } catch (error) {
@@ -189,19 +192,23 @@ router.patch("/finalize/:id", async (req, res) => {
     }
 });
 
-// Delete (Implicitly needed for "Action Buttons: ... Delete")
-router.delete("/:id", async (req, res) => {
+// Delete (Reset to pending/0?) via Timesheet ID? 
+// User didn't explicitly ask for delete in refactor, but "Action Buttons: 'Save', 'Approve', and 'Delete'" was in original.
+// In this new "Auto-Sync" model, "Deleting" a paysheet really just means deleting the custom rate/status override 
+// and reverting to the "default" state (which is just the timesheet view).
+router.delete("/:timesheetId", async (req, res) => {
     try {
-        const { id } = req.params;
-        const paysheet = await Paysheet.findOne({ id });
-        if (!paysheet) return res.status(404).json({ message: "Paysheet not found" });
+        const { timesheetId } = req.params;
+        const paysheet = await Paysheet.findOne({ timesheetId });
+
+        if (!paysheet) return res.status(404).json({ message: "No custom paysheet record found to reset." });
 
         if (paysheet.status === 'finalized') {
-            return res.status(400).json({ message: "Cannot delete finalized paysheets" });
+            return res.status(400).json({ message: "Cannot reset finalized paysheets" });
         }
 
-        await Paysheet.deleteOne({ id });
-        res.json({ message: "Paysheet deleted" });
+        await Paysheet.deleteOne({ timesheetId });
+        res.json({ message: "Paysheet reset to default" });
     } catch (error) {
         console.error("Error deleting paysheet:", error);
         res.status(500).json({ message: "Server Error" });
@@ -209,3 +216,4 @@ router.delete("/:id", async (req, res) => {
 });
 
 module.exports = router;
+
