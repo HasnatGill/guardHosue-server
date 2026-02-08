@@ -1,14 +1,14 @@
 const express = require("express")
 const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
-const Customers = require("../models/customers")
+// const Customers = require("../models/customers")
 const Users = require("../models/auth")
-const Incident = require("../models/Incident");
+// const Incident = require("../models/Incident");
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const multer = require("multer");
-const cloudinary = require("cloudinary").v2;
+// const cloudinary = require("cloudinary").v2;
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
 const { calculateShiftHours } = require("../utils/timeUtils");
@@ -19,8 +19,8 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 
-const storage = multer.memoryStorage()
-const upload = multer({ storage })
+// const storage = multer.memoryStorage()
+// const upload = multer({ storage })
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -88,13 +88,13 @@ const router = express.Router()
 router.post("/add", verifyToken, async (req, res) => {
     try {
         const { uid } = req;
+        const timeZone = req.headers["x-timezone"] || req.body.timeZone || "UTC";
 
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true })
 
         let formData = req.body;
-        const { guardId, start, end, breakTime } = formData;
-
+        const { guardId, start, end } = formData;
         // 1. Conflict Check
         let conflictError = null;
         if (guardId) {
@@ -118,23 +118,12 @@ router.post("/add", verifyToken, async (req, res) => {
         }
 
         const site = await Sites.findOne({ id: formData.siteId }).select('-createdBy -__v -_id')
-
-        // Calculate hours
-        const { totalHours, paidHours } = calculateShiftHours(start, end, breakTime);
-
-        // Create shift with timezone from header
-        const timeZone = req.headers["x-timezone"] || req.body.timeZone || "UTC";
-        const shift = new Shifts({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId, conflictDetails: conflictError, status: "draft", totalHours, paidHours, timeZone })
+        const dataAdd = { ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId, conflictDetails: conflictError, status: "draft", timeZone }
+        const shift = new Shifts(dataAdd)
         await shift.save()
 
         let shiftObject = shift.toObject();
         if (site) { shiftObject.siteId = site.toObject(); }
-
-        // if (shiftObject.guardId && req.io && formData.isPublished) {
-        //     const socketMsg = `Your new shift add at ${shiftObject?.siteId?.name}`;
-        //     req.io.to(shiftObject.guardId).emit('shift_published', { shift: shiftObject, message: socketMsg });
-        //     req.io.to(shiftObject.guardId).emit('new_shift_added', { shift: shiftObject, message: socketMsg });
-        // }
 
         res.status(201).json({ message: "Your shift added has been successfully", isError: false, shift, warnings: complianceWarnings })
 
@@ -313,9 +302,12 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
 router.patch("/update/:id", verifyToken, async (req, res) => {
     try {
 
+        const timeZone = req.headers["x-timezone"] || req.body.timeZone;
         const { id } = req.params;
         const { uid } = req;
+
         const { guardId: newGuardId } = req.body;
+
         const updatedData = { ...req.body };
 
         if (!uid) { return res.status(401).json({ message: "Unauthorized access.", isError: true }); }
@@ -332,17 +324,9 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
             const conflict = await checkShiftConflict(guardId, start, end, id);
             if (conflict) {
                 if (!forceSave) {
-                    return res.status(409).json({
-                        message: "Guard has an overlapping shift.",
-                        isError: true,
-                        conflict: true,
-                        conflictDetails: conflict
-                    });
+                    return res.status(409).json({ message: "Guard has an overlapping shift.", isError: true, conflict: true, conflictDetails: conflict });
                 } else {
-                    conflictError = {
-                        type: "Overlapping Shift",
-                        details: `Forced override. Overlaps with shift ${conflict.id}`
-                    };
+                    conflictError = { type: "Overlapping Shift", details: `Forced override. Overlaps with shift ${conflict.id}` };
                 }
             }
         }
@@ -354,21 +338,7 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
             if (!compliance.valid) complianceWarnings = compliance.warnings;
         }
 
-        // Calculate hours
-        const { totalHours, paidHours } = calculateShiftHours(start, end, breakTime);
-
-        const timeZone = req.headers["x-timezone"] || req.body.timeZone;
-        const updatePayload = {
-            start,
-            end,
-            siteId,
-            guardId,
-            status: updatedData.status || "draft", // Use provided status or fallback to draft
-            breakTime,
-            conflictDetails: conflictError,
-            totalHours,
-            paidHours
-        };
+        const updatePayload = { start, end, siteId, guardId, status: "draft", acceptedAt: null, rejectionReason: "", breakTime, conflictDetails: conflictError, };
         if (timeZone) updatePayload.timeZone = timeZone;
 
         const updatedShift = await Shifts.findOneAndUpdate(

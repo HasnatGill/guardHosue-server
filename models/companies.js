@@ -21,7 +21,7 @@ const schema = new Schema({
     billingBasis: { type: String, enum: ['customers', 'sites', 'guards', 'yearly'], default: 'customers' },
     rate: { type: Number, default: 0 },
     yearlyRate: { type: Number, default: 0 },
-    freeTrial: { type: Boolean, default: true },
+    freeTrial: { type: Boolean, default: false },
     trialStartDate: { type: Date, default: null },
     trialEndDate: { type: Date, default: null },
 

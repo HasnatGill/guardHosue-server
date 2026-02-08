@@ -7,41 +7,28 @@ const schema = new Schema({
     guardId: { type: String, required: false, ref: "users", index: true },
     customerId: { type: String, required: true, ref: "customers", index: true },
     companyId: { type: String, required: true, ref: "companies", index: true },
-    start: { type: Date, required: true, alias: 'scheduledStart' },
-    end: { type: Date, required: true, alias: 'scheduledEnd' },
+    start: { type: Date, required: true },
+    end: { type: Date, required: true },
     date: { type: Date, required: true },
     breakTime: { type: Number, required: true },
     guardRole: { type: String, default: "" },
     totalHours: { type: Number, required: true },
-    paidHours: { type: Number, default: 0 },
-    reason: { type: String, default: "" },
-    checkIn: { type: Date, default: null },
-    checkOut: { type: Date, default: null },
     acceptedAt: { type: Date, default: null },
-    actualStartTime: { type: Date, default: null, alias: 'actualStart' },
-    actualEndTime: { type: Date, default: null, alias: 'actualEnd' },
+    actualStart: { type: Date, default: null, },
+    actualEnd: { type: Date, default: null, },
     clockInLocation: { lat: { type: Number }, lng: { type: Number } },
     clockOutLocation: { lat: { type: Number }, lng: { type: Number } },
     isGeofenceVerified: { type: Boolean, default: false },
     locations: { type: [{ longitude: { type: Number }, latitude: { type: Number }, time: { type: Date, default: null } }], default: [] },
-    totalPayments: { type: Number, default: 0 },
-    attachments: { type: Schema.Types.Mixed, default: [] },
     incidents: { type: [String], default: [] },
     rejectionReason: { type: String, default: "" },
-    isTimesheetGenerated: { type: Boolean, default: false },
     status: { type: String, default: "draft", enum: ["draft", "published", "accepted", "active", "completed", "missed", "rejected", "cancelled"] },
     punctualityStatus: { type: String, default: null, enum: ["Early", "On-Time", "Late", null] },
     violationDetails: { type: String, default: null },
     conflictDetails: { type: Schema.Types.Mixed, default: null },
     timeZone: { type: String, default: "UTC" },
     createdBy: { type: String, required: true },
-    financials: {
-        guardPayRate: { type: Number, default: 0 },
-        clientChargeRate: { type: Number, default: 0 },
-        totalGuardPay: { type: Number, default: 0 },
-        totalClientBill: { type: Number, default: 0 }
-    }
-}, { timestamps: true, toJSON: { virtuals: true, aliases: true }, toObject: { virtuals: true, aliases: true } })
+}, { timestamps: true })
 
 // Virtual Population
 schema.virtual('site', { ref: 'sites', localField: 'siteId', foreignField: 'id', justOne: true });

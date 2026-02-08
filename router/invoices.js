@@ -464,11 +464,8 @@ router.get("/tracker", verifyToken, async (req, res) => {
         let { startDate, endDate } = cleanObjectValues(req.query);
         const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
 
-        console.log(startDate, endDate, timeZone);
-
         const start = startDate ? dayjs(startDate).tz(timeZone).startOf('month').utc(true).toDate() : dayjs().tz(timeZone).startOf('month').utc(true).toDate();
         const end = endDate ? dayjs(endDate).tz(timeZone).endOf('month').utc(true).toDate() : dayjs().tz(timeZone).endOf('month').utc(true).toDate();
-        console.log(start, end);
         // 1. Invoices stats in period
         const invoiceStats = await Invoices.aggregate([
             { $match: { issueDate: { $gte: start, $lte: end } } },
