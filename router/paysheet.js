@@ -2,8 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Paysheet = require("../models/Paysheet");
 const Timesheet = require("../models/Timesheet");
-const { v4: uuidv4 } = require('uuid');
-const dayjs = require('dayjs');
+const { getRandomId } = require("../config/global");
 
 // Get Paysheets (Auto-Sync View)
 router.get("/", async (req, res) => {
@@ -23,17 +22,11 @@ router.get("/", async (req, res) => {
 
         // Date Filter on Selected Scheduled Start
         if (startDate && endDate) {
-            query.selectedScheduledStart = {
-                $gte: new Date(startDate),
-                $lte: new Date(endDate)
-            };
+            query.selectedScheduledStart = { $gte: new Date(startDate), $lte: new Date(endDate) };
         }
 
         // 2. Fetch Approved Timesheets
-        let timesheets = await Timesheet.find(query)
-            .populate('guard')
-            .populate('site')
-            .sort({ selectedScheduledStart: -1 });
+        let timesheets = await Timesheet.find(query).populate('guard').populate('site').sort({ selectedScheduledStart: -1 });
 
         // Guard Name Search Filter (In-memory if not done via aggregate)
         if (guardQuery) {
@@ -57,9 +50,7 @@ router.get("/", async (req, res) => {
 
             const hourlyRate = paysheet ? paysheet.hourlyRate : 0;
             const status = paysheet ? paysheet.status : 'pending';
-            const totalEarnings = paysheet ? paysheet.totalEarnings : 0; // Or calculate: hourlyRate * ts.selectedPayableHours
 
-            // Aggregates
             totalPayableHours += (ts.selectedPayableHours || 0);
             totalEstimatedPayroll += (hourlyRate * (ts.selectedPayableHours || 0));
 
@@ -68,33 +59,10 @@ router.get("/", async (req, res) => {
             } else {
                 pendingCount++;
             }
-
-            return {
-                timesheetId: ts.id, // Primary Key for this view
-                paysheetId: paysheet?.id || null,
-                guard: ts.guard,
-                site: ts.site,
-                shiftDate: ts.selectedScheduledStart,
-                shiftStart: ts.selectedScheduledStart,
-                shiftEnd: ts.selectedScheduledEnd,
-                payableHours: ts.selectedPayableHours,
-                hourlyRate: hourlyRate,
-                totalEarnings: hourlyRate * (ts.selectedPayableHours || 0),
-                status: status,
-                timesheet: ts // Include raw timesheet if needed
-            };
+            return { timesheetId: ts.id, paysheetId: paysheet?.id || null, guard: ts.guard, site: ts.site, shiftDate: ts.selectedScheduledStart, shiftStart: ts.selectedScheduledStart, shiftEnd: ts.selectedScheduledEnd, payableHours: ts.selectedPayableHours, hourlyRate: hourlyRate, totalEarnings: hourlyRate * (ts.selectedPayableHours || 0), status: status, timesheet: ts };
         });
 
-        res.json({
-            summary: {
-                totalPayableHours,
-                totalEstimatedPayroll,
-                finalizedCount,
-                pendingCount,
-                totalShifts: timesheets.length
-            },
-            data: mergedData
-        });
+        res.json({ summary: { totalPayableHours, totalEstimatedPayroll, finalizedCount, pendingCount, totalShifts: timesheets.length }, data: mergedData });
 
     } catch (error) {
         console.error("Error fetching paysheets:", error);
@@ -118,29 +86,16 @@ router.patch("/update-rate/:timesheetId", async (req, res) => {
                 return res.status(400).json({ message: "Cannot edit finalized paysheets" });
             }
             paysheet.hourlyRate = Number(hourlyRate);
-
-            // Recalculate earnings based on linked Timesheet (need to fetch if not populated, but easier to just use what we have or re-fetch)
-            // Safer to re-fetch timesheet to get accurate hours
             const timesheet = await Timesheet.findOne({ id: timesheetId });
             paysheet.totalEarnings = paysheet.hourlyRate * (timesheet ? timesheet.selectedPayableHours : 0);
 
             await paysheet.save();
         }
-        // 3. If not, create new
         else {
             const timesheet = await Timesheet.findOne({ id: timesheetId });
             if (!timesheet) return res.status(404).json({ message: "Timesheet not found" });
 
-            paysheet = new Paysheet({
-                id: uuidv4(),
-                timesheetId: timesheetId,
-                guardId: timesheet.guardId,
-                siteId: timesheet.siteId,
-                companyId: timesheet.companyId,
-                hourlyRate: Number(hourlyRate),
-                totalEarnings: Number(hourlyRate) * timesheet.selectedPayableHours,
-                status: 'pending' // 'draft' -> 'pending' to match UI request
-            });
+            paysheet = new Paysheet({ id: getRandomId(), timesheetId: timesheetId, guardId: timesheet.guardId, siteId: timesheet.siteId, companyId: timesheet.companyId, hourlyRate: Number(hourlyRate), totalEarnings: Number(hourlyRate) * timesheet.selectedPayableHours, status: 'pending' });
             await paysheet.save();
         }
 
@@ -157,31 +112,14 @@ router.patch("/finalize/:timesheetId", async (req, res) => {
     try {
         const { timesheetId } = req.params;
 
-        // 1. Try to find existing Paysheet
         let paysheet = await Paysheet.findOne({ timesheetId });
 
-        // 2. If exists, update
-        if (paysheet) {
-            paysheet.status = 'finalized';
-            await paysheet.save();
-        }
-        // 3. If not, create new (implicitly finalize with 0 rate if not set? Or should we block?)
-        // User requirements say "If a Paysheet record... doesn't exist... return default".
-        // If they click finalize on a 0-rate shift, it should probably freeze it as is.
+        if (paysheet) { paysheet.status = 'finalized'; await paysheet.save(); }
         else {
             const timesheet = await Timesheet.findOne({ id: timesheetId });
             if (!timesheet) return res.status(404).json({ message: "Timesheet not found" });
 
-            paysheet = new Paysheet({
-                id: uuidv4(),
-                timesheetId: timesheetId,
-                guardId: timesheet.guardId,
-                siteId: timesheet.siteId,
-                companyId: timesheet.companyId,
-                hourlyRate: 0, // Default
-                totalEarnings: 0,
-                status: 'finalized'
-            });
+            paysheet = new Paysheet({ id: getRandomId(), timesheetId: timesheetId, guardId: timesheet.guardId, siteId: timesheet.siteId, companyId: timesheet.companyId, hourlyRate: 0, totalEarnings: 0, status: 'finalized' });
             await paysheet.save();
         }
 
@@ -192,10 +130,6 @@ router.patch("/finalize/:timesheetId", async (req, res) => {
     }
 });
 
-// Delete (Reset to pending/0?) via Timesheet ID? 
-// User didn't explicitly ask for delete in refactor, but "Action Buttons: 'Save', 'Approve', and 'Delete'" was in original.
-// In this new "Auto-Sync" model, "Deleting" a paysheet really just means deleting the custom rate/status override 
-// and reverting to the "default" state (which is just the timesheet view).
 router.delete("/:timesheetId", async (req, res) => {
     try {
         const { timesheetId } = req.params;
