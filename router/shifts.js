@@ -1,26 +1,16 @@
 const express = require("express")
 const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
-// const Customers = require("../models/customers")
 const Users = require("../models/auth")
-// const Incident = require("../models/Incident");
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const multer = require("multer");
-// const cloudinary = require("cloudinary").v2;
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
 const { calculateShiftHours } = require("../utils/timeUtils");
 const { sendShiftEmail } = require("../utils/mailer");
 const { sendPushNotification } = require("../utils/pushNotify");
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
-
-
-// const storage = multer.memoryStorage()
-// const upload = multer({ storage })
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -288,7 +278,7 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
 
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
             { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
-            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", checkIn: 1, } }
+            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", actualStart: 1, } }
         ]);
 
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });

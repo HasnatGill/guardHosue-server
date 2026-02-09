@@ -343,6 +343,18 @@ router.patch("/approve/:id", verifyToken, async (req, res) => {
         let timesheet = await Timesheet.findOne({ $or: [{ id: id }, { shiftId: id }] });
         if (!timesheet) return res.status(404).json({ success: false, message: "Timesheet not found." });
 
+        // Fixup: If timesheet is missing required fields (common for old 'missed' shifts)
+        if (!timesheet.selectedScheduledStart || !timesheet.scheduledStart) {
+            const shift = await Shifts.findOne({ id: timesheet.shiftId });
+            if (shift) {
+                timesheet.scheduledStart = timesheet.scheduledStart || shift.start;
+                timesheet.scheduledEnd = timesheet.scheduledEnd || shift.end;
+                timesheet.scheduledTotalHours = timesheet.scheduledTotalHours || shift.totalHours;
+                timesheet.selectedScheduledStart = timesheet.selectedScheduledStart || shift.start;
+                timesheet.selectedScheduledEnd = timesheet.selectedScheduledEnd || shift.end;
+            }
+        }
+
         // Update Approval Details
         timesheet.status = status || 'approved'; // Allow passing 'disputed'
 
@@ -357,14 +369,7 @@ router.patch("/approve/:id", verifyToken, async (req, res) => {
         }
 
         if (adminNotes) timesheet.adminNotes = adminNotes;
-        if (calculationPreference) {
-            // If preference changing during approval, trigger logic. 
-            // For now, assume preference was set prior or match simple update logic
-            timesheet.calculationPreference = calculationPreference;
-            // Ideally we run the full calc logic here too, but to avoid duplication I'll assume 
-            // frontend calls update-financials first OR we merge logic.
-            // Let's rely on update-financials for calc changes.
-        }
+        if (calculationPreference) { timesheet.calculationPreference = calculationPreference; }
 
         await timesheet.save();
 

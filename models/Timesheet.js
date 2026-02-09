@@ -11,15 +11,15 @@ const timesheetSchema = new Schema({
     scheduledEnd: { type: Date, required: true },
     scheduledBreakMinutes: { type: Number, default: 0 },
     scheduledTotalHours: { type: Number, required: true },
-    actualStart: { type: Date, default: null, required: true },
-    actualEnd: { type: Date, default: null, required: true },
+    actualStart: { type: Date, default: null },
+    actualEnd: { type: Date, default: null },
     actualBreakMinutes: { type: Number, default: 0 },
-    actualTotalHours: { type: Number, required: true },
+    actualTotalHours: { type: Number, default: 0 },
     selectedBreakMinutes: { type: Number, default: 0 },
-    selectedPayableHours: { type: Number, required: true },
+    selectedPayableHours: { type: Number, default: 0 },
     selectedScheduledStart: { type: Date, required: true },
     selectedScheduledEnd: { type: Date, required: true },
-    selectedTotalHours: { type: Number, required: true },
+    selectedTotalHours: { type: Number, default: 0 },
     calculationPreference: { type: String, enum: ['scheduled', 'actual', 'manual'], default: 'actual' },
     manualAdjustment: {
         startTime: Date,
@@ -29,7 +29,11 @@ const timesheetSchema = new Schema({
     },
     approvalDetails: { approvedBy: String, approvedAt: Date, },
     exportStatus: { type: Boolean, default: false },
-    status: { type: String, enum: ['pending', 'approved', 'disputed',], default: 'pending' },
+    status: { type: String, enum: ['pending', 'approved', 'disputed', 'missed'], default: 'pending' },
+    totalPay: { type: Number, default: 0 },
+    guardPayRate: { type: Number, default: 0 },
+    adminNotes: { type: String, default: "" },
+    isProcessedForPayroll: { type: Boolean, default: false },
 }, { timestamps: true });
 
 // Virtual Population
