@@ -86,8 +86,17 @@ router.patch("/update-rate/:timesheetId", async (req, res) => {
                 return res.status(400).json({ message: "Cannot edit finalized paysheets" });
             }
             paysheet.hourlyRate = Number(hourlyRate);
+
             const timesheet = await Timesheet.findOne({ id: timesheetId });
-            paysheet.totalEarnings = paysheet.hourlyRate * (timesheet ? timesheet.selectedPayableHours : 0);
+            if (timesheet) {
+                const totalEarnings = Number(hourlyRate) * (timesheet.selectedPayableHours || 0);
+                paysheet.totalEarnings = totalEarnings.toFixed(2);
+
+                // Update Timesheet as well
+                timesheet.guardPayRate = Number(hourlyRate);
+                timesheet.totalPay = totalEarnings.toFixed(2);
+                await timesheet.save();
+            }
 
             await paysheet.save();
         }
@@ -95,7 +104,24 @@ router.patch("/update-rate/:timesheetId", async (req, res) => {
             const timesheet = await Timesheet.findOne({ id: timesheetId });
             if (!timesheet) return res.status(404).json({ message: "Timesheet not found" });
 
-            paysheet = new Paysheet({ id: getRandomId(), timesheetId: timesheetId, guardId: timesheet.guardId, siteId: timesheet.siteId, companyId: timesheet.companyId, hourlyRate: Number(hourlyRate), totalEarnings: Number(hourlyRate) * timesheet.selectedPayableHours, status: 'pending' });
+            const totalEarnings = Number(hourlyRate) * (timesheet.selectedPayableHours || 0);
+
+            paysheet = new Paysheet({
+                id: getRandomId(),
+                timesheetId: timesheetId,
+                guardId: timesheet.guardId,
+                siteId: timesheet.siteId,
+                companyId: timesheet.companyId,
+                hourlyRate: Number(hourlyRate),
+                totalEarnings: totalEarnings,
+                status: 'draft'
+            });
+
+            // Update Timesheet as well
+            timesheet.guardPayRate = Number(hourlyRate);
+            timesheet.totalPay = totalEarnings.toFixed(2);
+            await timesheet.save();
+
             await paysheet.save();
         }
 

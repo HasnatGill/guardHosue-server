@@ -20,7 +20,7 @@ const timesheetSchema = new Schema({
     selectedScheduledStart: { type: Date, required: true },
     selectedScheduledEnd: { type: Date, required: true },
     selectedTotalHours: { type: Number, default: 0 },
-    calculationPreference: { type: String, enum: ['scheduled', 'actual', 'manual'], default: 'actual' },
+    calculationPreference: { type: String, enum: ['scheduled', 'actual', 'manual'], default: 'scheduled' },
     manualAdjustment: {
         startTime: Date,
         endTime: Date,

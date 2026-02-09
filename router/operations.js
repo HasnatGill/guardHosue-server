@@ -277,7 +277,7 @@ router.post("/accept/:id", verifyToken, async (req, res) => {
             endTime: updatedShift.end
         };
 
-        if (req.io) { req.io.emit('shift_accepted', { shift: shiftFormat, message: `Guard ${guard.fullName} has accepted shift ${id}` }); }
+        if (req.io) { req.io.emit('shift_accepted', { shift: shiftFormat, message: `Guard ${guard.fullName} has accepted shift ${site?.name}` }); }
 
         return res.status(200).json({ message: "Shift accepted successfully. Status is now 'accepted'.", isError: false, shift: shiftFormat });
     } catch (error) {
