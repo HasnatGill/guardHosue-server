@@ -13,6 +13,58 @@ dayjs.extend(timezone);
 
 const router = express.Router();
 
+// GET /my-timesheets - Mobile App: Fetch Guard's Own Timesheets
+router.get("/my-timesheets", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { startDate, endDate } = req.query;
+        const timeZone = req.headers["x-timezone"] || "UTC";
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ success: false, message: "Start and End dates are required." });
+        }
+
+        const matchStage = {
+            guardId: uid,
+            // Filter by selectedScheduledStart as it's the primary date for the timesheet record
+            selectedScheduledStart: {
+                $gte: dayjs(startDate).tz(timeZone).startOf('day').utc(true).toDate(),
+                $lte: dayjs(endDate).tz(timeZone).endOf('day').utc(true).toDate()
+            }
+        };
+
+        const pipeline = [
+            { $match: matchStage },
+            { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "site" } },
+            { $unwind: { path: "$site", preserveNullAndEmptyArrays: true } },
+            { $lookup: { from: "customers", localField: "site.customerId", foreignField: "id", as: "customer" } },
+            { $unwind: { path: "$customer", preserveNullAndEmptyArrays: true } },
+            { $sort: { selectedScheduledStart: 1 } },
+            {
+                $project: {
+                    id: 1,
+                    date: "$selectedScheduledStart", // For date key
+                    customer: { $ifNull: ["$customer.name", "Unknown Customer"] },
+                    site: { $ifNull: ["$site.name", "Unknown Site"] },
+                    start_time: "$selectedScheduledStart", // Frontend will format
+                    end_time: "$selectedScheduledEnd",   // Frontend will format
+                    break_minutes: "$selectedBreakMinutes",
+                    notes: "$adminNotes",
+                    status: "$status"
+                }
+            }
+        ];
+
+        const timesheets = await Timesheet.aggregate(pipeline);
+
+        res.status(200).json({ success: true, count: timesheets.length, data: timesheets });
+
+    } catch (error) {
+        console.error("My Timesheets Error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch timesheets." });
+    }
+});
+
 // GET /admin-view - Aggregated Grouped View for Dashboard (Shift-First Architecture)
 router.get("/admin-view", verifyToken, async (req, res) => {
     try {
