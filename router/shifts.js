@@ -278,7 +278,7 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
 
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
             { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
-            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, breakTime: 1, totalHours: 1, siteId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", actualStart: 1, } }
+            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, breakTime: 1, totalHours: 1, siteId: 1, guardId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", actualStart: 1, } }
         ]);
 
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
