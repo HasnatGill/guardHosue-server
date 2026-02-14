@@ -136,6 +136,7 @@ router.get("/live-operations", verifyToken, async (req, res) => {
                     guardId: "$guardId",
                     isGeofenceVerified: "$isGeofenceVerified",
                     actualStartTime: "$actualStartTime",
+                    checkpoints: "$checkpoints",
                     clockInLocation: "$clockInLocation"
                 }
             },
