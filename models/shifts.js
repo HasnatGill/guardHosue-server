@@ -20,6 +20,15 @@ const schema = new Schema({
     clockOutLocation: { lat: { type: Number }, lng: { type: Number } },
     isGeofenceVerified: { type: Boolean, default: false },
     locations: { type: [{ longitude: { type: Number }, latitude: { type: Number }, time: { type: Date, default: null } }], default: [] },
+    checkpoints: {
+        type: [{
+            checkPointNumber: { type: String },
+            latitude: { type: Number },
+            longitude: { type: Number },
+            scannedAt: { type: Date, default: null }
+        }],
+        default: []
+    },
     incidents: { type: [String], default: [] },
     rejectionReason: { type: String, default: "" },
     status: { type: String, default: "draft", enum: ["draft", "published", "accepted", "active", "completed", "missed", "rejected", "cancelled"] },

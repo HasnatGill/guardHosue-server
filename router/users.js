@@ -14,7 +14,7 @@ const upload = multer({ storage })
 
 const router = express.Router()
 
-const { APP_URL_1 } = process.env
+const { APP_URL } = process.env
 
 router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
     try {
@@ -48,7 +48,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
 
         await newUser.save();
 
-        const verifyUrl = `${APP_URL_1}/auth/set-password?token=${token}&email=${email}`;
+        const verifyUrl = `${APP_URL}/auth/set-password?token=${token}&email=${email}`;
         const bodyHtml = `
 <!DOCTYPE html>
 <html>

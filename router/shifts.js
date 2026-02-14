@@ -498,6 +498,52 @@ router.patch("/drop-pin/:id", verifyToken, async (req, res) => {
     }
 });
 
+router.post("/scan-checkpoint", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { scanTime } = req.query;
+        const { shiftId, checkPointNumber, latitude, longitude } = req.body;
+
+        if (!checkPointNumber || !latitude || !longitude) { return res.status(400).json({ message: "Invalid QR Code Data", isError: true }); }
+
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+
+        let query = {};
+        if (shiftId) {
+            query.id = shiftId;
+        } else {
+            query = { guardId: uid, status: "active", };
+        }
+
+        const shift = await Shifts.findOne(query);
+        if (!shift) return res.status(404).json({ message: "No active shift found.", isError: true });
+
+        const newCheckpoint = { checkPointNumber, latitude, longitude, scannedAt: scanTime };
+
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id: shift.id },
+            { $push: { checkpoints: newCheckpoint } },
+            { new: true }
+        );
+
+        if (req.io) {
+            req.io.emit('checkpoint_scanned', {
+                shift: updatedShift,
+                message: `Checkpoint ${checkPointNumber} scanned by ${user.fullName}`,
+                checkpoint: newCheckpoint
+            });
+        }
+
+        res.status(200).json({ message: "Checkpoint scanned successfully", isError: false, shift: updatedShift });
+
+    } catch (error) {
+        console.error("Checkpoint Scan Error:", error);
+        res.status(500).json({ message: "Something went wrong", isError: true, error });
+    }
+});
+
 // Bulk Publish Endpoint
 router.patch("/publish", verifyToken, async (req, res) => {
     try {
