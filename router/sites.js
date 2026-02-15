@@ -31,7 +31,7 @@ router.post("/add", verifyToken, async (req, res) => {
         const user = await Users.findOne({ uid })
         if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
 
-        const site = new Sites({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId })
+        const site = new Sites({ ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, welfareConfig: formData.welfareConfig || { isEnabled: false, interval: 60 } })
         await site.save()
 
         res.status(201).json({ message: "Your site added has been successfully", isError: false, site })
@@ -111,7 +111,7 @@ router.get("/all-sites", verifyToken, async (req, res) => {
 
         const sites = await Sites.aggregate([
             { $match: match },
-            { $project: { _id: 0, id: 1, name: 1, customerId: 1 } }
+            { $project: { _id: 0, id: 1, name: 1, customerId: 1, welfareConfig: 1 } }
         ]);
 
         res.status(200).json({ message: "Sites fetched", isError: false, sites });

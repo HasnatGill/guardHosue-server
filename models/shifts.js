@@ -35,6 +35,14 @@ const schema = new Schema({
     punctualityStatus: { type: String, default: null, enum: ["Early", "On-Time", "Late", null] },
     violationDetails: { type: String, default: null },
     conflictDetails: { type: Schema.Types.Mixed, default: null },
+    welfare: {
+        isEnabled: { type: Boolean, default: false },
+        interval: { type: Number, default: 60 },
+        status: { type: String, enum: ['pending', 'ok', 'overdue', 'alert'], default: 'pending' },
+        nextCheckAt: { type: Date },
+        lastResponseAt: { type: Date },
+        failedChecks: { type: Number, default: 0 }
+    },
     timeZone: { type: String, default: "UTC" },
     createdBy: { type: String, required: true },
 }, { timestamps: true })

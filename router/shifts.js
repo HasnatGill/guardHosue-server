@@ -108,7 +108,8 @@ router.post("/add", verifyToken, async (req, res) => {
         }
 
         const site = await Sites.findOne({ id: formData.siteId }).select('-createdBy -__v -_id')
-        const dataAdd = { ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId, conflictDetails: conflictError, status: "draft", timeZone }
+        const welfare = formData.welfare || { isEnabled: false, interval: 60 };
+        const dataAdd = { ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId, conflictDetails: conflictError, status: "draft", timeZone, welfare }
         const shift = new Shifts(dataAdd)
         await shift.save()
 
@@ -278,7 +279,7 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
 
             { $lookup: { from: "sites", localField: "siteId", foreignField: "id", as: "siteInfo" } },
             { $unwind: { path: "$siteInfo", preserveNullAndEmptyArrays: true } },
-            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, breakTime: 1, totalHours: 1, siteId: 1, guardId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", actualStart: 1, } }
+            { $project: { _id: 0, id: 1, date: 1, start: 1, end: 1, status: 1, breakTime: 1, totalHours: 1, siteId: 1, guardId: 1, siteName: "$siteInfo.name", siteAddress: "$siteInfo.address", actualStart: 1, welfare: 1 } }
         ]);
 
         return res.status(200).json({ message: "Shifts fetched successfully.", shifts });
@@ -328,7 +329,7 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
             if (!compliance.valid) complianceWarnings = compliance.warnings;
         }
 
-        const updatePayload = { start, end, siteId, guardId, status: "draft", acceptedAt: null, rejectionReason: "", breakTime, conflictDetails: conflictError, };
+        const updatePayload = { start, end, siteId, guardId, status: "draft", acceptedAt: null, rejectionReason: "", breakTime, conflictDetails: conflictError, welfare: updatedData.welfare };
         if (timeZone) updatePayload.timeZone = timeZone;
 
         const updatedShift = await Shifts.findOneAndUpdate(
@@ -577,5 +578,49 @@ router.patch("/publish", verifyToken, async (req, res) => {
     }
 });
 
+
+router.patch("/welfare-ping/:id", verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { latitude, longitude } = req.body;
+        const { uid } = req;
+
+        const shift = await Shifts.findOne({ id, guardId: uid });
+        if (!shift) return res.status(404).json({ message: "Shift not found.", isError: true });
+
+        const now = dayjs().utc();
+        const nextCheckAt = now.add(shift.welfare.interval || 60, 'minute').toDate();
+
+        const updatedShift = await Shifts.findOneAndUpdate(
+            { id },
+            {
+                $set: {
+                    "welfare.status": "ok",
+                    "welfare.lastResponseAt": now.toDate(),
+                    "welfare.nextCheckAt": nextCheckAt,
+                    "welfare.failedChecks": 0
+                },
+                $push: {
+                    locations: {
+                        longitude: longitude,
+                        latitude: latitude,
+                        time: now.toDate(),
+                    }
+                }
+            },
+            { new: true }
+        );
+
+        if (req.io) {
+            req.io.emit('WELFARE_UPDATE', { shiftId: id, status: "ok", nextCheckAt });
+        }
+
+        res.status(200).json({ message: "Welfare check confirmed. Stay safe!", isError: false, shift: updatedShift });
+
+    } catch (error) {
+        console.error("Welfare Ping Error:", error);
+        res.status(500).json({ message: "Something went wrong", isError: true });
+    }
+});
 
 module.exports = router

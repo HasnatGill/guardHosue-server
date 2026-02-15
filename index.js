@@ -47,6 +47,10 @@ const io = initIO(server, [APP_URL, APP_URL_1, APP_URL_2, APP_URL_3])
 const { initCronJobs } = require("./utils/cronJobs")
 initCronJobs()
 
+// ✅ Welfare Service
+const { initWelfareService } = require("./services/welfareService")
+initWelfareService(io)
+
 app.use((req, res, next) => {
     req.io = io;
     next();

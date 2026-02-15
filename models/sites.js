@@ -24,6 +24,10 @@ const schema = new Schema({
     clientChargeRate: { type: Number, default: 0 }, // Added for financial tracking
     requiredSkills: { type: [String], default: [] },
     status: { type: String, default: "active" },
+    welfareConfig: {
+        isEnabled: { type: Boolean, default: false },
+        interval: { type: Number, default: 60 }, // in minutes
+    },
     createdBy: { type: String, required: true },
 }, { timestamps: true })
 

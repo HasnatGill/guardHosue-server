@@ -209,6 +209,16 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         const actualStartTime = now.toDate();
 
+        let welfareUpdate = {};
+        if (shift.welfare && shift.welfare.isEnabled) {
+            const nextCheckAt = now.add(shift.welfare.interval || 60, 'minute').toDate();
+            welfareUpdate = {
+                "welfare.status": "ok",
+                "welfare.nextCheckAt": nextCheckAt,
+                "welfare.lastResponseAt": now.toDate()
+            };
+        }
+
         const updatedShift = await Shifts.findOneAndUpdate(
             { id: shiftId },
             {
@@ -218,7 +228,8 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
                     clockInLocation: { lat: Number(latitude), lng: Number(longitude) },
                     isGeofenceVerified,
                     punctualityStatus,
-                    violationDetails: violationFlag
+                    violationDetails: violationFlag,
+                    ...welfareUpdate
                 }
             },
             { new: true }

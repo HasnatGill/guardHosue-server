@@ -423,7 +423,7 @@ router.get('/monthly-shifts/:guardId', verifyToken, async (req, res) => {
                 },
                 select: 'id name address city customerId'
             })
-            .select('id totalHours date start end breakTime status checkIn checkOut liveStatus locations')
+            .select('id totalHours date start end breakTime status actualEnd actualStart liveStatus locations checkpoints clockInLocation')
             .lean();
 
         res.status(200).json({ success: true, shifts });
@@ -443,7 +443,7 @@ router.get('/current-week-shifts/:guardId', verifyToken, async (req, res) => {
         const startDate = dayjs(weekStart)
         const endDate = dayjs(weekEnd)
 
-        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } }).populate({ path: 'siteId', model: 'sites', localField: 'siteId', foreignField: 'id', select: 'id name address city' }).select('id guardId siteId breakTime date start end status liveStatus totalHours').lean();
+        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } }).populate({ path: 'siteId', model: 'sites', localField: 'siteId', foreignField: 'id', select: 'id name address city' }).select('id guardId siteId actualEnd actualStart breakTime date start end status liveStatus totalHours locations checkpoints clockInLocation').lean();
 
         res.status(200).json({ success: true, shifts });
 
