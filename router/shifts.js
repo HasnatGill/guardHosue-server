@@ -1,14 +1,12 @@
-const express = require("express")
+const express = require("express");
 const Shifts = require("../models/shifts");
-const Sites = require("../models/sites")
-const Users = require("../models/auth")
+const Sites = require("../models/sites");
+const Users = require("../models/auth");
 const dayjs = require("dayjs");
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-const multer = require("multer");
 const { verifyToken } = require("../middlewares/auth")
 const { getRandomId, cleanObjectValues } = require("../config/global");
-const { calculateShiftHours } = require("../utils/timeUtils");
 const { sendShiftEmail } = require("../utils/mailer");
 const { sendPushNotification } = require("../utils/pushNotify");
 
@@ -108,7 +106,14 @@ router.post("/add", verifyToken, async (req, res) => {
         }
 
         const site = await Sites.findOne({ id: formData.siteId }).select('-createdBy -__v -_id')
-        const welfare = formData.welfare || { isEnabled: false, interval: 60 };
+        const welfare = formData.welfare || { isEnabled: false, interval: 60, startDelay: 0, gracePeriod: 5 };
+
+        if (welfare.isEnabled && formData.start) {
+            const shiftStart = dayjs(formData.start);
+            const firstCheckDelay = (welfare.startDelay && welfare.startDelay > 0) ? welfare.startDelay : welfare.interval;
+            welfare.nextCheckAt = shiftStart.add(firstCheckDelay, 'minute').toDate();
+        }
+
         const dataAdd = { ...formData, id: getRandomId(), createdBy: uid, companyId: user.companyId, customerId: site.customerId, conflictDetails: conflictError, status: "draft", timeZone, welfare }
         const shift = new Shifts(dataAdd)
         await shift.save()
@@ -329,7 +334,15 @@ router.patch("/update/:id", verifyToken, async (req, res) => {
             if (!compliance.valid) complianceWarnings = compliance.warnings;
         }
 
-        const updatePayload = { start, end, siteId, guardId, status: "draft", acceptedAt: null, rejectionReason: "", breakTime, conflictDetails: conflictError, welfare: updatedData.welfare };
+        const welfare = updatedData.welfare || existingShift.welfare || {};
+
+        if (welfare.isEnabled) {
+            const shiftStart = start ? dayjs(start) : dayjs(existingShift.start);
+            const firstCheckDelay = (welfare.startDelay && welfare.startDelay > 0) ? welfare.startDelay : welfare.interval;
+            welfare.nextCheckAt = shiftStart.add(firstCheckDelay, 'minute').toDate();
+        }
+
+        const updatePayload = { start, end, siteId, guardId, status: "draft", acceptedAt: null, rejectionReason: "", breakTime, conflictDetails: conflictError, welfare };
         if (timeZone) updatePayload.timeZone = timeZone;
 
         const updatedShift = await Shifts.findOneAndUpdate(

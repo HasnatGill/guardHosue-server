@@ -27,6 +27,8 @@ const schema = new Schema({
     welfareConfig: {
         isEnabled: { type: Boolean, default: false },
         interval: { type: Number, default: 60 }, // in minutes
+        startDelay: { type: Number, default: 0 }, // Delay before first check in minutes
+        gracePeriod: { type: Number, default: 5 }, // Time to respond before overdue
     },
     createdBy: { type: String, required: true },
 }, { timestamps: true })

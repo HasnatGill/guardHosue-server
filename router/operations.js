@@ -137,7 +137,10 @@ router.get("/live-operations", verifyToken, async (req, res) => {
                     isGeofenceVerified: "$isGeofenceVerified",
                     actualStartTime: "$actualStartTime",
                     checkpoints: "$checkpoints",
-                    clockInLocation: "$clockInLocation"
+                    actualStartTime: "$actualStartTime",
+                    checkpoints: "$checkpoints",
+                    clockInLocation: "$clockInLocation",
+                    welfare: "$welfare"
                 }
             },
         ];
@@ -211,12 +214,35 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         let welfareUpdate = {};
         if (shift.welfare && shift.welfare.isEnabled) {
-            const nextCheckAt = now.add(shift.welfare.interval || 60, 'minute').toDate();
+            // Senior Architect Logic:
+            // 1. Calculate the FIRST check time based on Start Delay or Interval.
+            //    If startDelay > 0, we use that. If 0, we use Interval.
+            //    (Assumption: We don't check *immediately* on clock-in unless delay=0 and interval=0, which is unlikely)
+            const delayMinutes = (shift.welfare.startDelay && shift.welfare.startDelay > 0)
+                ? shift.welfare.startDelay
+                : shift.welfare.interval;
+
+            const nextCheckAt = now.add(delayMinutes, 'minute').toDate();
+
             welfareUpdate = {
-                "welfare.status": "ok",
+                "welfare.status": "ok", // Active/Monitoring
                 "welfare.nextCheckAt": nextCheckAt,
-                "welfare.lastResponseAt": now.toDate()
+                "welfare.lastResponseAt": now.toDate(),
+                "welfare.failedChecks": 0
             };
+
+            // Async Log: Welfare Initialized
+            const WelfareLogs = require("../models/WelfareLogs"); // Lazy load or move to top
+            try {
+                await WelfareLogs.create({
+                    shiftId: shiftId,
+                    guardId: uid,
+                    siteId: shift.siteId,
+                    event: 'INIT',
+                    timestamp: now.toDate(),
+                    metadata: { message: `Welfare initialized. First check at ${dayjs(nextCheckAt).format("HH:mm")}` }
+                });
+            } catch (e) { console.error("Welfare Log Error", e); }
         }
 
         const updatedShift = await Shifts.findOneAndUpdate(

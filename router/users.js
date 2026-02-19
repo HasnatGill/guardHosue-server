@@ -30,7 +30,7 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         if (req.file) {
             await new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'GuardHouse/users' },
+                    { folder: 'securitymatrixai/users' },
                     (error, result) => {
                         if (error) { return reject(error); }
                         photoURL = result.secure_url; photoPublicId = result.public_id;
@@ -234,7 +234,7 @@ router.patch("/update/:id", verifyToken, upload.single("image"), async (req, res
         if (req.file) {
             await new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'GuardHouse/users' }, // Optional: specify a folder in Cloudinary
+                    { folder: 'securitymatrixai/users' }, // Optional: specify a folder in Cloudinary
                     (error, result) => {
                         if (error) { return reject(error); }
                         photoURL = result.secure_url; photoPublicId = result.public_id;
@@ -376,7 +376,7 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
         if (req.file) {
             await new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'GuardHouse/users' }, // Optional: specify a folder in Cloudinary
+                    { folder: 'securitymatrixai/users' }, // Optional: specify a folder in Cloudinary
                     (error, result) => {
                         if (error) { return reject(error); }
                         photoURL = result.secure_url; photosPublicId = result.public_id;

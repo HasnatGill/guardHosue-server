@@ -38,6 +38,8 @@ const schema = new Schema({
     welfare: {
         isEnabled: { type: Boolean, default: false },
         interval: { type: Number, default: 60 },
+        startDelay: { type: Number, default: 0 },
+        gracePeriod: { type: Number, default: 5 },
         status: { type: String, enum: ['pending', 'ok', 'overdue', 'alert'], default: 'pending' },
         nextCheckAt: { type: Date },
         lastResponseAt: { type: Date },

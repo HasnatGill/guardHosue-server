@@ -19,7 +19,7 @@ const uploadToCloudinary = (file) => {
         const resourceType = file.mimetype.startsWith("video/") ? "video" : "image";
 
         const uploadStream = cloudinary.uploader.upload_stream(
-            { folder: "incidents", resource_type: resourceType },  // Set resource type dynamically
+            { folder: "securitymatrixai/incidents", resource_type: resourceType },  // Set resource type dynamically
             (error, result) => {
                 if (error) return reject(error);
                 resolve({
