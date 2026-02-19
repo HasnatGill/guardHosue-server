@@ -13,7 +13,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const initCronJobs = () => {
-    cron.schedule('*/15 * * * *', async () => {
+    cron.schedule('*/5 * * * *', async () => {
         console.log(`[${dayjs().format('HH:mm:ss')}] Running Cron: Checking for missed clock-ins...`);
         try {
             const potentialMissedShifts = await Shifts.find({

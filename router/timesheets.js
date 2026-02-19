@@ -515,4 +515,85 @@ router.get("/export", verifyToken, async (req, res) => {
     }
 });
 
+// POST /approve-bulk - Bulk Approve or Update Status
+router.post("/approve-bulk", verifyToken, async (req, res) => {
+    try {
+        const { ids, status } = req.body;
+        const { uid } = req;
+
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ success: false, message: "No IDs provided." });
+        }
+
+        const user = await Users.findOne({ uid });
+        const results = [];
+
+        for (const id of ids) {
+            let timesheet = await Timesheet.findOne({ $or: [{ id: id }, { shiftId: id }] });
+
+            if (!timesheet) {
+                // If no timesheet exists yet, we try to create one from the shift
+                const shift = await Shifts.findOne({ id });
+                if (shift) {
+                    timesheet = new Timesheet({
+                        id: shift.id,
+                        shiftId: shift.id,
+                        guardId: shift.guardId,
+                        siteId: shift.siteId,
+                        companyId: shift.companyId,
+                        scheduledStart: shift.start,
+                        scheduledEnd: shift.end,
+                        scheduledBreakMinutes: shift.breakTime,
+                        scheduledTotalHours: shift.totalHours,
+                        actualStart: shift.start,
+                        actualEnd: shift.end,
+                        actualBreakMinutes: shift.breakTime,
+                        actualTotalHours: shift.totalHours,
+                        selectedScheduledStart: shift.start,
+                        selectedScheduledEnd: shift.end,
+                        selectedTotalHours: shift.totalHours,
+                        selectedPayableHours: shift.totalHours,
+                        status: 'pending'
+                    });
+                } else {
+                    continue; // Skip if no shift found either
+                }
+            }
+
+            // Standardize fields if missing
+            if (!timesheet.selectedScheduledStart || !timesheet.scheduledStart) {
+                const shift = await Shifts.findOne({ id: timesheet.shiftId });
+                if (shift) {
+                    timesheet.scheduledStart = timesheet.scheduledStart || shift.start;
+                    timesheet.scheduledEnd = timesheet.scheduledEnd || shift.end;
+                    timesheet.scheduledTotalHours = timesheet.scheduledTotalHours || shift.totalHours;
+                    timesheet.selectedScheduledStart = timesheet.selectedScheduledStart || shift.start;
+                    timesheet.selectedScheduledEnd = timesheet.selectedScheduledEnd || shift.end;
+                }
+            }
+
+            // Update Status
+            timesheet.status = status || 'approved';
+
+            if (timesheet.status === 'approved') {
+                timesheet.approvalDetails = {
+                    approvedBy: user ? user.fullName : 'Admin',
+                    approvedAt: new Date()
+                };
+                timesheet.isProcessedForPayroll = true;
+            } else {
+                timesheet.isProcessedForPayroll = false;
+            }
+
+            await timesheet.save();
+            results.push(timesheet);
+        }
+
+        res.status(200).json({ success: true, message: `Successfully updated ${results.length} timesheets to ${status}.`, count: results.length });
+    } catch (error) {
+        console.error("Bulk Approve Error:", error);
+        res.status(500).json({ success: false, message: "Failed to perform bulk operation." });
+    }
+});
+
 module.exports = router;
