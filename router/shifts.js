@@ -295,6 +295,53 @@ router.get("/my-shifts", verifyToken, async (req, res) => {
     }
 })
 
+router.get("/publish-targets", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const { startDate, endDate, days, type } = cleanObjectValues(req.query);
+        const timeZone = req.headers["x-timezone"] || req.query.timeZone || "UTC";
+
+        let startStr = startDate ? JSON.parse(startDate) : null;
+        let endStr = endDate ? JSON.parse(endDate) : null;
+
+        if (!startStr || !endStr) { return res.status(400).json({ message: "startDate and endDate are required.", isError: true }); }
+
+        const start = dayjs.utc(startStr).startOf('day');
+        const end = dayjs.utc(endStr).endOf('day');
+
+        const selectedDays = days ? JSON.parse(days) : [];
+
+        let matchQuery = { companyId: user.companyId, status: "draft", date: { $gte: start.toDate(), $lte: end.toDate() } };
+
+        const shifts = await Shifts.find(matchQuery);
+
+        const filteredShifts = shifts.filter(shift => {
+            const shiftDay = dayjs.utc(shift.date).tz(timeZone).format('ddd');
+            return selectedDays.length === 0 || selectedDays.includes(shiftDay);
+        });
+
+        const targetIds = [...new Set(filteredShifts.map(s => type === 'person' ? s.guardId : s.siteId))].filter(Boolean);
+
+        let data = [];
+        if (type === 'person') {
+            const guards = await Users.find({ uid: { $in: targetIds } }, 'fullName uid');
+            data = guards.map(g => ({ uid: g.uid, fullName: g.fullName }));
+        } else {
+            const sites = await Sites.find({ id: { $in: targetIds } }, 'name id');
+            data = sites.map(s => ({ id: s.id, name: s.name }));
+        }
+
+        res.status(200).json({ data, isError: false });
+
+    } catch (error) {
+        console.error("Fetch Publish Targets Error:", error);
+        res.status(500).json({ message: "Something went wrong while fetching publish targets", isError: true, error: error.message });
+    }
+})
+
 router.patch("/update/:id", verifyToken, async (req, res) => {
     try {
 
