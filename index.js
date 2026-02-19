@@ -36,6 +36,7 @@ app.use(cors({
 
 app.use(morgan("dev"))
 app.use(bodyParser.json())
+app.use(express.json())
 
 const server = http.createServer(app)
 

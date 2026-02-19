@@ -479,6 +479,20 @@ router.get("/all-with-status", verifyToken, async (req, res) => {
     }
 });
 
+router.delete("/delete-multiple", async (req, res) => {
+    try {
+        const shiftIds = req.body;
+
+        if (!shiftIds || shiftIds.length === 0) return res.status(400).json({ message: "Shift IDs are required.", isError: true })
+
+        await Shifts.deleteMany({ id: { $in: shiftIds } });
+        return res.status(200).json({ message: "Shift deleted successfully.", isError: false });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Something went wrong while deleting shift", isError: true, error });
+    }
+})
+
 router.patch("/drop-pin/:id", verifyToken, async (req, res) => {
 
     const { id } = req.params;
