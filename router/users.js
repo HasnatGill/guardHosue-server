@@ -1,5 +1,6 @@
 const express = require("express")
 const multer = require("multer");
+const bcrypt = require("bcrypt")
 const Users = require("../models/auth")
 const Shifts = require("../models/shifts")
 const { verifyToken } = require("../middlewares/auth")
@@ -21,11 +22,12 @@ router.post("/add", verifyToken, upload.single("image"), async (req, res) => {
         const { uid } = req;
         if (!uid) return res.status(401).json({ message: "Permission denied" });
 
-        let { firstName, lastName, fullName, email, phone, gender, licenceExpiryDate, lincenceNumber, companyId, role } = req.body;
+        const cleanedBody = cleanObjectValues(req.body);
+        let { firstName, lastName, fullName, email, phone, gender, licenceExpiryDate, lincenceNumber, companyId, role } = cleanedBody;
 
         const existUser = await Users.findOne({ email })
         if (existUser) return res.status(401).json({ message: "This email is already in use", isError: true })
-
+        console.log("req.body", req.body)
         let photoURL = "", photoPublicId = "";
         if (req.file) {
             await new Promise((resolve, reject) => {
@@ -368,18 +370,19 @@ router.delete("/single/:userId", verifyToken, async (req, res) => {
 router.patch("/profile-update", verifyToken, upload.single("image"), async (req, res) => {
     try {
         const { uid } = req;
+        const { password, phone, lincenceNumber, licenceExpiryDate, ...otherData } = req.body;
 
         const user = await Users.findOne({ uid });
         if (!user) return res.status(404).json({ isError: true, message: "User not found" });
 
-        let { photoURL = "", photosPublicId = "" } = user
+        let { photoURL = "", photoPublicId = "" } = user
         if (req.file) {
             await new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'securitymatrixai/users' }, // Optional: specify a folder in Cloudinary
+                    { folder: 'securitymatrixai/users' },
                     (error, result) => {
                         if (error) { return reject(error); }
-                        photoURL = result.secure_url; photosPublicId = result.public_id;
+                        photoURL = result.secure_url; photoPublicId = result.public_id;
                         resolve();
                     }
                 )
@@ -388,9 +391,22 @@ router.patch("/profile-update", verifyToken, upload.single("image"), async (req,
         }
 
         // ---- Prepare Updated Fields
-        const updatedData = { ...req.body, photoURL, photosPublicId, updatedAt: new Date() };
+        const updatedData = {
+            ...otherData,
+            photoURL,
+            photoPublicId,
+            updatedAt: new Date()
+        };
 
-        const updatedUser = await Users.findOneAndUpdate({ uid }, updatedData, { new: true });
+        if (password) {
+            updatedData.password = await bcrypt.hash(password, 10);
+        }
+
+        if (phone) updatedData.phone = phone;
+        if (lincenceNumber) updatedData.lincenceNumber = lincenceNumber;
+        if (licenceExpiryDate) updatedData.licenceExpiryDate = licenceExpiryDate;
+
+        const updatedUser = await Users.findOneAndUpdate({ uid }, { $set: updatedData }, { new: true });
 
         res.status(200).json({ message: "Profile updated successfully", isError: false, user: updatedUser });
     } catch (error) {
