@@ -459,7 +459,7 @@ router.get('/current-week-shifts/:guardId', verifyToken, async (req, res) => {
         const startDate = dayjs(weekStart)
         const endDate = dayjs(weekEnd)
 
-        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } }).populate({ path: 'siteId', model: 'sites', localField: 'siteId', foreignField: 'id', select: 'id name address city' }).select('id guardId siteId actualEnd actualStart breakTime date start end status liveStatus totalHours locations checkpoints clockInLocation').lean();
+        const shifts = await Shifts.find({ guardId: guardId, date: { $gte: startDate, $lte: endDate } }).populate({ path: 'siteId', model: 'sites', localField: 'siteId', foreignField: 'id', select: 'id name address city' }).select('id guardId siteId actualEnd actualStart breakTime date start end status liveStatus totalHours locations checkpoints selfieURL clockInLocation').lean();
 
         res.status(200).json({ success: true, shifts });
 

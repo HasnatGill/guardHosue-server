@@ -46,6 +46,7 @@ const schema = new Schema({
         failedChecks: { type: Number, default: 0 }
     },
     timeZone: { type: String, default: "UTC" },
+    selfieURL: { type: String, default: "" },
     createdBy: { type: String, required: true },
 }, { timestamps: true })
 

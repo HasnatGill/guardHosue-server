@@ -1,5 +1,9 @@
 const express = require("express")
 const mongoose = require("mongoose");
+const multer = require("multer");
+const { cloudinary } = require("../config/cloudinary");
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 const Shifts = require("../models/shifts");
 const Sites = require("../models/sites")
 const Customers = require("../models/customers")
@@ -140,7 +144,8 @@ router.get("/live-operations", verifyToken, async (req, res) => {
                     actualStartTime: "$actualStartTime",
                     checkpoints: "$checkpoints",
                     clockInLocation: "$clockInLocation",
-                    welfare: "$welfare"
+                    welfare: "$welfare",
+                    selfieURL: "$selfieURL"
                 }
             },
         ];
@@ -155,8 +160,27 @@ router.get("/live-operations", verifyToken, async (req, res) => {
     }
 });
 
+router.get("/active-shift/:guardId", verifyToken, async (req, res) => {
+    try {
+        const { uid } = req;
+        const { guardId } = req.params;
 
-router.patch("/check-in/:id", verifyToken, async (req, res) => {
+        const user = await Users.findOne({ uid });
+        if (!user) return res.status(401).json({ message: "Unauthorized access.", isError: true });
+
+        const activeShift = await Shifts.findOne({ guardId, status: "active" });
+        if (!activeShift) return res.status(404).json({ message: "No active shift found.", isError: true });
+
+        return res.status(200).json({ message: "Active shift fetched successfully.", activeShift });
+
+    } catch (error) {
+        console.error("Error:", error);
+        res.status(500).json({ message: "Server error during active shift fetch.", isError: true });
+    }
+})
+
+
+router.patch("/check-in/:id", verifyToken, upload.single("selfie"), async (req, res) => {
     try {
         const { uid } = req;
         const { id: shiftId } = req.params;
@@ -178,6 +202,22 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
 
         const site = await Sites.findOne({ id: shift.siteId }).lean();
         if (!site) return res.status(404).json({ message: "Assigned site not found.", isError: true });
+
+        // Selfie Upload to Cloudinary
+        let selfieURL = "";
+        if (req.file) {
+            await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    { folder: 'securitymatrixai/checkins' },
+                    (error, result) => {
+                        if (error) return reject(error);
+                        selfieURL = result.secure_url;
+                        resolve();
+                    }
+                );
+                uploadStream.end(req.file.buffer);
+            });
+        }
 
         // 2. Geofence Validation Snapshot
         let isGeofenceVerified = true;
@@ -255,6 +295,7 @@ router.patch("/check-in/:id", verifyToken, async (req, res) => {
                     isGeofenceVerified,
                     punctualityStatus,
                     violationDetails: violationFlag,
+                    selfieURL,
                     ...welfareUpdate
                 }
             },
