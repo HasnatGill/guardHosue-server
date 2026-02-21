@@ -630,17 +630,28 @@ router.patch("/publish", verifyToken, async (req, res) => {
         }
 
         const user = await Users.findOne({ uid });
-        const query = {
+
+        // Find shifts that are actually in draft
+        const draftShifts = await Shifts.find({
             id: { $in: shiftIds },
             companyId: user.companyId,
             status: "draft"
-        };
+        }, 'id');
 
-        // Update shifts
-        const result = await Shifts.updateMany(query, { $set: { status: "published" } });
+        const draftShiftIds = draftShifts.map(s => s.id);
 
-        // Trigger background notifications for each shift
-        shiftIds.forEach(id => {
+        if (draftShiftIds.length === 0) {
+            return res.status(200).json({ message: "No draft shifts found to publish.", count: 0, isError: false });
+        }
+
+        // Update only draft shifts
+        const result = await Shifts.updateMany(
+            { id: { $in: draftShiftIds } },
+            { $set: { status: "published" } }
+        );
+
+        // Trigger background notifications only for the newly published shifts
+        draftShiftIds.forEach(id => {
             sendShiftNotifications(id, req.io);
         });
 
