@@ -230,9 +230,14 @@ router.patch("/check-in/:id", verifyToken, upload.single("selfie"), async (req, 
             );
 
             if (distance > (site.clockInRadius || 100)) {
-                isGeofenceVerified = false;
-                violationFlag = "GEOFENCE_VIOLATION";
+                return res.status(400).json({
+                    message: "You are outside the site's allowed radius. Please move closer to the site to clock in.",
+                    isError: true,
+                    distance: Math.round(distance),
+                    requiredRadius: site.clockInRadius || 100
+                });
             }
+            isGeofenceVerified = true;
         } else {
             return res.status(400).json({ message: "Location coordinates are required for clock-in.", isError: true });
         }
